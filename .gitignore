@@ -1,0 +1,17 @@
+# Streamlit secrets and config
+**/secrets.toml
+**/.cortex_cache/
+
+# Python cache and virtual envs
+**/__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.env
+
+# IDE and system files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

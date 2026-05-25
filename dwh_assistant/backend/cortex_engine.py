@@ -666,7 +666,7 @@ def run_all(session: Session, requirements: Dict[str, Any], data_profile: Dict[s
             for layer in layers:
                 layer_tables = [t for t in inventory if t.lower().startswith(layer[:3].lower()) or layer in t]
                 if not layer_tables and layer == "Gold":
-                    layer_tables = [t for t in inventory if t.startswith(("fct_", "dim_"))]
+                    layer_tables = [t for t in inventory if t.lower().startswith(("fct_", "dim_", "fact_"))]
                 
                 for table_name in layer_tables:
                     ctx = current_results.copy()

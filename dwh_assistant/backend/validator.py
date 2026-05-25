@@ -105,7 +105,7 @@ def heal_mermaid_flow(mermaid: str) -> str:
         "source": 0, "src": 0, "erp": 0, "crm": 0, "app": 0, "s1": 0, "s2": 0, "s3": 0, "s4": 0,
         "bronze": 1, "raw_": 1, "b1": 1, "b2": 1,
         "silver": 2, "stg_": 2, "s1a": 2, "s2a": 2,
-        "gold": 3, "fct_": 3, "dim_": 3, "s1b": 3, "s2b": 3, "g1": 3, "g2": 3,
+        "gold": 3, "fct_": 3, "dim_": 3, "fact_": 3, "s1b": 3, "s2b": 3, "g1": 3, "g2": 3,
         "consumption": 4, "bi": 4, "analytics": 4, "analyst": 4, "cortex": 4
     }
     

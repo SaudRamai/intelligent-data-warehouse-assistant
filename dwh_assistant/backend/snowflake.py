@@ -312,8 +312,38 @@ def save_project_to_store(session: Session, project_id: str, requirements: dict,
         # ddl_gen and doc_design extraction for flat columns
         ddl_sql = artifacts.get("ddl_sql", outputs.get("ddl_generation", {}).get("ddl_sql", ""))
         doc_data = artifacts.get("documentation", outputs.get("documentation_design", {}))
-        doc_text = doc_data.get("documentation", "") if isinstance(doc_data, dict) else str(doc_data)
-        mermaid = outputs.get("mermaid_diagram", doc_data.get("mermaid_diagram", ""))
+        
+        doc_text = ""
+        if isinstance(doc_data, dict):
+            if "documentation" in doc_data and isinstance(doc_data["documentation"], str):
+                doc_text = doc_data["documentation"]
+            else:
+                parts = ["# Data Warehouse Technical Documentation\n"]
+                if "executive_summary" in doc_data:
+                    parts.append(f"## Executive Summary\n{doc_data['executive_summary']}\n")
+                if "architecture_decision" in doc_data:
+                    parts.append(f"## Architecture Decisions\n{doc_data['architecture_decision']}\n")
+                if "key_entities" in doc_data:
+                    parts.append("## Key Entities")
+                    entities = doc_data["key_entities"]
+                    if isinstance(entities, list):
+                        for e in entities:
+                            parts.append(f"- {e}")
+                    else:
+                        parts.append(str(entities))
+                    parts.append("")
+                
+                # Append any other keys that might be there
+                for k, v in doc_data.items():
+                    if k not in ["executive_summary", "architecture_decision", "key_entities", "mermaid_diagram", "documentation"]:
+                        title = k.replace("_", " ").title()
+                        parts.append(f"## {title}\n{v}\n")
+                
+                doc_text = "\n".join(parts)
+        else:
+            doc_text = str(doc_data)
+            
+        mermaid = outputs.get("mermaid_diagram", doc_data.get("mermaid_diagram", "")) if isinstance(doc_data, dict) else outputs.get("mermaid_diagram", "")
         
         import uuid
         if not project_id:

@@ -32,21 +32,22 @@ STEP_REQUIRED_KEYS = {
     "architecture_strategy": ["architecture_type", "modeling_paradigm", "layers", "mermaid_diagram"],
     "schema_modeling":       ["tables"],
     "pipeline_design":       ["tasks"],
-    "governance_security":   ["roles", "mask"],
+    "governance_security":   ["roles", "mask", "compliance_checklist"],
     "ddl_generation":        ["ddl_sql", "grant_sql"],
     "history":               ["assumptions"],
     "metadata_analysis":     ["lin", "tags"],
     "relationship_design":   ["rel", "mermaid_diagram"],
-    "final_blueprint":       ["summary"],
+    "final_blueprint":       ["summary", "documentation"],
 }
 
 TYPE_SPECS = {
     "schema_modeling": {"tables": list},
     "pipeline_design": {"tasks": list},
-    "governance_security": {"roles": list, "mask": list},
+    "governance_security": {"roles": list, "mask": list, "compliance_checklist": list},
     "relationship_design": {"rel": list, "mermaid_diagram": str},
     "metadata_analysis": {"lin": list, "tags": list},
-    "ddl_generation": {"ddl_sql": str, "grant_sql": str}
+    "ddl_generation": {"ddl_sql": str, "grant_sql": str},
+    "final_blueprint": {"summary": str, "documentation": dict}
 }
 
 def step_is_complete(step_name: str, data: Any) -> bool:
@@ -179,6 +180,27 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                                 if "n" in m and "column" not in m: m["column"] = m.pop("n")
                                 if "t" in m and "type" not in m: m["type"] = m.pop("t")
                                 if "e" in m and "role" not in m: m["role"] = m.pop("e")
+
+                    # Expand relationship keys (f/t/c to from/from_table/to/to_table/cardinality)
+                    if "rel" in output and isinstance(output["rel"], list):
+                        for r in output["rel"]:
+                            if isinstance(r, dict):
+                                if "f" in r:
+                                    f_val = r.pop("f")
+                                    if "from" not in r: r["from"] = f_val
+                                    if "from_table" not in r: r["from_table"] = f_val
+                                if "t" in r:
+                                    t_val = r.pop("t")
+                                    if "to" not in r: r["to"] = t_val
+                                    if "to_table" not in r: r["to_table"] = t_val
+                                if "c" in r and "cardinality" not in r:
+                                    r["cardinality"] = r.pop("c")
+                                
+                                # Backups if LLM directly provided long keys
+                                if "from" in r and "from_table" not in r: r["from_table"] = r["from"]
+                                if "to" in r and "to_table" not in r: r["to_table"] = r["to"]
+                                if "from_table" in r and "from" not in r: r["from"] = r["from_table"]
+                                if "to_table" in r and "to" not in r: r["to"] = r["to_table"]
 
                     # Synthesis of fallback visual diagrams if omitted by LLM
                     if step_name == "pipeline_design" and not output.get("mermaid_diagram"):

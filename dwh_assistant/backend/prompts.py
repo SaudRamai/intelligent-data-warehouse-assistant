@@ -24,7 +24,7 @@ STRICT RULES:
 1. Output ONLY valid JSON
 2. No explanations, no markdown, no comments
 3. Never truncate output
-4. Maintain consistent naming across all layers
+4. Maintain consistent naming across all layers. For Gold layer / Dimensional Model tables, always prefix dimension tables with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE).
 5. Use surrogate keys (*_sk) for all relationships
 6. Separate pipeline design from schema design strictly
 7. Never mix architecture, schema, and UI logic
@@ -39,10 +39,11 @@ Supported types:
 - Hybrid Cloud
 
 PIPELINE VIEW RULES (Architecture Tab):
-- Only show high-level flow
-- Allowed: Sources → Ingestion → Bronze → Silver → Gold → Semantic → Consumption
-- Use ONLY: flowchart LR or graph LR
-- No tables, no attributes, no PK/FK, no schema details
+- Show a flowchart representing the high-level data flow through the architecture layers.
+- The diagram must be fully dynamic and driven by the AI-generated structure, where all layers (as subgraphs), nodes (representing sources, ingestion points, storage layers, and consumer applications), and relationships are directly interpreted from the input data profile and chosen architecture strategy.
+- Do NOT hardcode or output a predefined or statically coded layout. The layout must dynamically adapt to the selected architecture (e.g., Medallion, Data Vault 2.0, Lakehouse, Hybrid Cloud).
+- Use ONLY: flowchart LR or graph LR.
+- Do not include detailed column level attributes or PK/FK details; show the high-level flow of data from sources to consumption.
 
 SCHEMA VIEW RULES (Warehouse Tab):
 - Use ONLY: erDiagram
@@ -97,10 +98,10 @@ PARADIGM_RULES = {
 }
 
 NAMING_REGISTRY = {
-    "fact_prefix": "fct_", "dim_prefix": "dim_",
+    "fact_prefix": "FACT_", "dim_prefix": "DIM_",
     "hub_prefix": "hub_", "lnk_prefix": "lnk_", "sat_prefix": "sat_",
     "stg_prefix": "stg_", "raw_prefix": "raw_",
-    "key_format": "<entity>_sk", "feature_prefix": "fct_features_",
+    "key_format": "<entity>_sk", "feature_prefix": "FACT_features_",
     "ai_model_prefix": "model_", "ai_app_prefix": "app_", "ai_agent_prefix": "agent_"
 }
 
@@ -114,23 +115,23 @@ Step: Architecture Strategy & Master Blueprint
 Context: __req__ | Profile: __profile__
 
 CRITICAL ARCHITECTURE TAB MANDATE (Pipeline View Only):
-1. MUST display ONLY the high-level data pipeline layers. It should represent the system flow and nothing more.
-2. Allowed Content in mermaid_diagram and layers: Source systems, Ingestion layer, Bronze layer, Silver layer, Gold layer, Semantic layer, AI/ML layer, Consumption layer.
-3. Key Rule: It must ONLY show the data flow pipeline. No tables, no attributes, no PK/FK details. No schema-level or warehouse-level design.
-4. Purpose: To provide a clean architectural overview of how data moves through the system.
+1. MUST display the high-level data pipeline flow dynamically generated based on the selected architecture type and data sources.
+2. The diagram MUST NOT be a static sequence like "Sources --> Ingestion --> Bronze --> Silver --> Gold --> Consumption". It must be a custom flowchart detailing the actual data sources from the profile (e.g., source tables or APIs), passing through subgraphs representing the architecture's layers, and ending with specific consumption nodes (e.g., dashboards, reporting, apps).
+3. Do NOT include tables, attributes, or PK/FK details. The flowchart represents the structural data flow only.
+4. The layers (subgraphs) must reflect the chosen architecture type (e.g. Medallion, Data Vault 2.0, Lakehouse, Hybrid Cloud).
 
 STRICT OUTPUT (JSON ONLY):
 {
-  "mermaid_diagram": "flowchart LR\\n  Sources --> Ingestion --> Bronze --> Silver --> Gold --> Consumption",
-  "architecture_type": "MEDALLION | VAULT",
-  "modeling_paradigm": "STAR | VAULT",
-  "layers": ["List"],
+  "mermaid_diagram": "flowchart LR\\n  subgraph Ingestion\\n    src_api[API Source]\\n  end\\n  subgraph Storage\\n    raw_zone[Raw Zone]\\n  end\\n  src_api --> raw_zone",
+  "architecture_type": "MEDALLION | DATA_VAULT | LAKEHOUSE | HYBRID_CLOUD",
+  "modeling_paradigm": "STAR_SCHEMA | SNOWFLAKE | DATA_VAULT",
+  "layers": ["List of layers matching architecture type"],
   "complexity": "L/M/H",
   "estimated_cost_tier": "L/M/H",
   "fitness_metrics": {"Complexity": 50, "Cost": 50, "Scalability": 80, "Performance": 80, "Security": 90},
   "reasoning_summary": "10-word summary",
   "data_model_blueprint": {
-    "schema_type": "Star/Vault",
+    "schema_type": "Star/Vault/Lakehouse",
     "core_entities": ["List"],
     "primary_relationships": ["List"]
   },
@@ -156,7 +157,7 @@ MANDATORY SCHEMA TAB REQUIREMENTS (Warehouse Detailed Model Only):
    - Must define all Primary Keys (PK)
    - Must define all Foreign Keys (FK)
    - Must include relationships between tables
-   - Must follow proper star schema or snowflake schema design
+   - Must follow proper star schema or snowflake schema design, where Gold layer/Dimensional Model tables representing dimension tables are prefixed with 'DIM_' and fact tables are prefixed with 'FACT_' (in UPPERCASE, e.g. DIM_CUSTOMER, FACT_SALES).
    - Must be fully derived from the Architecture tab
 4. Key Rule: ONLY warehouse-layer modeling is allowed. No source systems, ingestion, or pipeline layers. No high-level architecture elements.
 5. Dependency Rule Between Tabs: Architecture = pipeline flow view (high-level only), Schema = detailed warehouse design (low-level relational model). Schema must be generated using Architecture as reference, but only extracting warehouse-relevant entities. Both must be strictly separated with no overlap.
@@ -236,8 +237,9 @@ Ensure the mermaid diagram is highly compressed and non-truncated.
 OUTPUT (JSON ONLY):
 {
   "mermaid_diagram": "graph LR\\n  SRC --> LNZ",
-  "roles": [{"n": "n"}],
-  "mask": [{"t": "t", "c": "c"}]
+  "roles": [{"n": "role_name", "g": [{"o": "object_name", "p": ["SELECT", "USAGE"]}]}],
+  "mask": [{"n": "column_name", "t": "masking_type", "e": "enforced_role"}],
+  "compliance_checklist": ["checklist_item"]
 }
 """
 
@@ -275,7 +277,12 @@ Results: __results__
 OUTPUT (JSON ONLY):
 {
   "summary": "10-word summary",
-  "score": 0-100
+  "score": 0-100,
+  "documentation": {
+    "executive_summary": "High-level summary of the entire data warehouse architecture...",
+    "architecture_decision": "Detailed justification of modeling paradigm, layers, and database choices...",
+    "key_entities": ["List of core entities and their roles..."]
+  }
 }
 """
 
@@ -498,9 +505,10 @@ STEP_JSON_SCHEMAS = {
         "properties": {
             "roles": {"type": "array", "items": {"type": "object"}},
             "mask":  {"type": "array", "items": {"type": "object"}},
+            "compliance_checklist": {"type": "array", "items": {"type": "string"}},
             "mermaid_diagram": {"type": "string"}
         },
-        "required": ["roles", "mask", "mermaid_diagram"]
+        "required": ["roles", "mask", "compliance_checklist", "mermaid_diagram"]
     },
     "ddl_generation": {
         "type": "object",
@@ -523,9 +531,18 @@ STEP_JSON_SCHEMAS = {
         "type": "object",
         "properties": {
             "summary": {"type": "string"},
-            "score":   {"type": "number"}
+            "score":   {"type": "number"},
+            "documentation": {
+                "type": "object",
+                "properties": {
+                    "executive_summary": {"type": "string"},
+                    "architecture_decision": {"type": "string"},
+                    "key_entities": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["executive_summary", "architecture_decision"]
+            }
         },
-        "required": ["summary"]
+        "required": ["summary", "score", "documentation"]
     },
     "history": {
         "type": "object",
@@ -581,11 +598,13 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 ═══════════════════════════════════════════════
 
 1. LAYER COMPLETENESS ENFORCEMENT
-- Architecture MUST include:
-  Sources → Ingestion → Bronze → Silver → Gold → Semantic → Consumption
-- Schema MUST include ALL warehouse layers:
-  BRONZE, SILVER, GOLD, SEMANTIC
-- If any layer is missing → auto-generate it
+- The Architecture and Schema MUST dynamically include all layers appropriate for the selected architecture type:
+  * For Medallion: Bronze, Silver, Gold, Consumption layers.
+  * For Data Vault 2.0: Ingestion/Stage, Raw Vault (Hubs, Links, Satellites), Business Vault, Info Marts.
+  * For Lakehouse: Raw/Landing, Cleaned/Conformed, Curated/Enriched, semantic layers.
+  * For Hybrid Cloud: Cloud storage, On-prem storage, Hybrid Integration layers.
+- Do NOT force a single hardcoded layer structure on all architecture types. Allow layers, subgraphs, and node structures to be fully dynamic and tailored to the chosen architecture model.
+- If any core layer of the chosen architecture model is missing → auto-generate it.
 
 2. SINGLE SOURCE OF TRUTH RULE
 - Architecture defines FLOW only
@@ -639,17 +658,17 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 ═══════════════════════════════════════════════
 ARCHITECTURE FIX RULES
 ═══════════════════════════════════════════════
-- Must ONLY represent data flow
-- No tables, no columns, no PK/FK
-- Must follow:
-  Sources → Ingestion → Bronze → Silver → Gold → Semantic → Consumption
+- Represent the high-level data flow of the chosen architecture.
+- Do NOT hardcode a static sequence (e.g. Sources -> Ingestion -> Bronze -> Silver -> Gold -> Consumption). Instead, dynamically build the flowchart using subgraphs representing layers and nodes representing sources, processing zones, and serving systems.
+- No low-level columns or PK/FK details.
 
 ═══════════════════════════════════════════════
 SCHEMA FIX RULES
 ═══════════════════════════════════════════════
 - Must include full warehouse design
-- Must include all layers (Bronze → Semantic)
-- Must include Fact + Dimension models
+- Must include all layers appropriate to the selected architecture
+- Must include modeling structures matching the paradigm (e.g., Fact/Dimension for Star/Snowflake, Hub/Link/Satellite for Data Vault)
+- If using Star Schema or Snowflake Modeling, must prefix dimension tables in the Gold layer/Dimensional Model with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE). If using Data Vault 2.0, follow Hub (`hub_`), Link (`lnk_`), Satellite (`sat_`) naming conventions.
 - Must enforce surrogate key relationships only
 - Must not include ingestion or source systems
 

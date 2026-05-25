@@ -21,6 +21,44 @@ st.set_page_config(page_title="AI Generation | AI DWH", layout="wide")
 init_session_state()
 apply_premium_style()
 
+def clear_all_generation_caches(steps):
+    # 1. Clear persistent disk cache directory
+    import shutil
+    from dwh_assistant.backend.orchestrator import CORTEX_CACHE_DIR
+    if CORTEX_CACHE_DIR.exists():
+        shutil.rmtree(CORTEX_CACHE_DIR, ignore_errors=True)
+        CORTEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 2. Clear Streamlit's data cache
+    st.cache_data.clear()
+
+    # 3. Clear memory caches
+    if "cortex_memory_cache" in st.session_state:
+        st.session_state["cortex_memory_cache"] = {}
+    if "profile_cache" in st.session_state:
+        st.session_state["profile_cache"] = {}
+
+    # 4. Clear steps outputs and raw outputs
+    for _k, _ in steps:
+        st.session_state[_k] = None
+        st.session_state[f"{_k}_raw"] = None
+
+    # 5. Clear compatibility and mapped session state keys
+    other_keys = [
+        "architecture_selection", "schema_design", "schema_modeling",
+        "pipeline_design", "governance_security", "ddl_generation",
+        "metadata_analysis", "relationship_design", "final_blueprint",
+        "blueprint", "documentation_design", "architecture", "schema",
+        "pipeline", "governance", "artifacts", "history", "generation_results"
+    ]
+    for key in other_keys:
+        st.session_state[key] = None
+
+    # 6. Clear manual overrides from the Design Center
+    editor_keys = [k for k in list(st.session_state.keys()) if k.startswith("editor_") or k.startswith("toggle_") or k.startswith("slider_")]
+    for key in editor_keys:
+        del st.session_state[key]
+
 def main():
     from dwh_assistant.backend.orchestrator import run_all, step_is_complete
     from dwh_assistant.backend.executor import call_cortex
@@ -115,19 +153,8 @@ def main():
         cta_placeholder.success("Architecture Generation Complete!")
         
         c1, c2 = st.columns(2)
-        if c1.button("RE-GENERATE (FULL RESET)", width='stretch'):
-            # Clear all cached step outputs AND raw snapshots
-            import shutil
-            from dwh_assistant.backend.orchestrator import CORTEX_CACHE_DIR
-            if CORTEX_CACHE_DIR.exists():
-                shutil.rmtree(CORTEX_CACHE_DIR, ignore_errors=True)
-                CORTEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-            for _k, _ in steps:
-                st.session_state[_k] = None
-                st.session_state[f"{_k}_raw"] = None
-            st.session_state["architecture_selection"] = None
-            st.session_state["generation_results"] = None
+        if c1.button("Generate Full Reset", width='stretch'):
+            clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()
             
@@ -142,18 +169,13 @@ def main():
             st.session_state["generation_running"] = True
             st.rerun()
         if c2.button("START OVER (RESET)", width='stretch'):
-            for _k, _ in steps:
-                st.session_state[_k] = None
-            st.session_state["generation_results"] = None
+            clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()
 
     elif not is_running:
         if cta_placeholder.button("BEGIN ARCHITECTURAL GENERATION", type="primary", width='stretch'):
-            # Fresh start: Clear state
-            for _k, _ in steps:
-                st.session_state[_k] = None
-            st.session_state["generation_results"] = None
+            clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()
 

@@ -114,15 +114,8 @@ def main():
                         p_data = load_project_by_id(st.session_state["snowflake_session"], p_id)
                         if p_data:
                             # Map to session state
-                            st.session_state["project_id"] = p_data["project_id"]
-                            st.session_state["requirements"] = p_data["requirements"]
-                            st.session_state["data_profile"] = p_data["data_profile"]
-                            st.session_state["architecture_selection"] = p_data["architecture_selection"]
-                            st.session_state["schema_design"] = p_data["schema_design"]
-                            st.session_state["pipeline_design"] = p_data["pipeline_design"]
-                            st.session_state["governance_security"] = p_data["governance_security"]
-                            st.session_state["ddl_generation"] = p_data["ddl_generation"]
-                            st.session_state["documentation_design"] = p_data["documentation_design"]
+                            for k, v in p_data.items():
+                                st.session_state[k] = v
                             st.session_state["form_complete"] = True
                             st.success(f"Project {p_id} Loaded Successfully!")
                             st.rerun()

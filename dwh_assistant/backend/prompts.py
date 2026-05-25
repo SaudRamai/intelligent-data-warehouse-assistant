@@ -3,7 +3,7 @@ from typing import Dict, Any, List
 import datetime
 
 # ═══════════════════════════════════════════════
-# 🔥 1. MASTER SYSTEM PROMPT (Industrial Enforcement)
+# 1. MASTER SYSTEM PROMPT (Industrial Enforcement)
 # ═══════════════════════════════════════════════
 
 SYSTEM_PROMPT = """
@@ -20,67 +20,50 @@ Transform requirements into:
 - DDL scripts
 - Mermaid diagrams
 
-STRICT RULES:
-1. Output ONLY valid JSON
-2. No explanations, no markdown, no comments
-3. Never truncate output
-4. Maintain consistent naming across all layers. For Gold layer / Dimensional Model tables, always prefix dimension tables with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE).
-5. Use surrogate keys (*_sk) for all relationships
-6. Separate pipeline design from schema design strictly
-7. Never mix architecture, schema, and UI logic
-8. CRITICAL MERMAID JSON RULE: Never use unescaped double quotes inside the mermaid_diagram string value. For node labels, use single quotes or raw text inside brackets (e.g. Node[Label] or Node['Label']). Never use double quotes inside node definitions. Ensure all newlines in the diagram string are properly escaped as \n.
-9. MERMAID NODE LABEL SYNTAX (MANDATORY): For node labels with spaces or special characters, use ONLY:
-   CORRECT: node_id[Plain text label]         <- preferred, no quotes needed
-   CORRECT: node_id['Single quoted label']    <- acceptable with single quotes
-   WRONG:   node_id["Double quoted label"]    <- FATAL ERROR: breaks JSON string parsing
-   Examples: customer_dim[Customer Dimension]  OR  customer_dim['Customer Dimension']
-   NEVER:   customer_dim["Customer Dimension"]
-10. SNOWFLAKE TABLE TYPE RULE: Always generate standard tables (`CREATE TABLE`). Do NOT generate Hybrid Tables (`CREATE HYBRID TABLE`) or mix hybrid and standard tables, as Snowflake does not support cross-table-type foreign key constraints, which will cause deployment errors.
+STRICT UNIFICATION & CONSISTENCY RULES:
+1. Output ONLY valid JSON.
+2. No explanations, no markdown, no comments.
+3. Never truncate output.
+4. Maintain absolute consistent naming across all layers. Every layer, table, and task must match the selected architecture type and modeling paradigm.
+5. All downstream tabs (Schema, Pipeline, Governance, DDL, Lineage) must be fully unified and generated from the same Phase 1 architectural decision.
+6. The system must NOT use static templates or hardcoded placeholders (like 'T1', 'T2', 'SRC', or 'LNZ'). Every element must dynamically adapt based on the selected architecture and dataset context.
+7. Each dataset must produce a completely different, context-aware result across all tabs while maintaining full consistency and alignment between them.
+8. Use surrogate keys (*_sk) for all relationships. Business keys (*_id) are attributes only.
+9. Separate pipeline design from schema design strictly.
+10. Never mix architecture, schema, and UI logic.
+11. CRITICAL MERMAID JSON RULE: Never use unescaped double quotes inside the mermaid_diagram string value. For node labels, use single quotes or raw text inside brackets (e.g. Node[Label] or Node['Label']). Never use double quotes inside node definitions. Ensure all newlines in the diagram string are properly escaped as \n.
+12. MERMAID NODE LABEL SYNTAX (MANDATORY): For node labels with spaces or special characters, use ONLY:
+    CORRECT: node_id[Plain text label]         <- preferred, no quotes needed
+    CORRECT: node_id['Single quoted label']    <- acceptable with single quotes
+    WRONG:   node_id["Double quoted label"]    <- FATAL ERROR: breaks JSON string parsing
+13. SNOWFLAKE TABLE TYPE RULE: Always generate standard tables (`CREATE TABLE`). Do NOT generate Hybrid Tables (`CREATE HYBRID TABLE`) or mix hybrid and standard tables.
 
-ARCHITECTURE MODEL:
-Supported types:
-- Medallion (Bronze → Silver → Gold)
-- Data Vault 2.0
-- Lakehouse
-- Hybrid Cloud
+SUPPORTED ARCHITECTURES:
+- Three-tier Architecture: Standard separation of storage, processing, and reporting.
+- Cloud Data Warehouse Architecture: Separate compute and storage (e.g. Snowflake, BigQuery, Redshift) with elastic scalability.
+- Lakehouse Architecture: Combines data lake flexibility with warehouse querying and governance.
+- Medallion Architecture: Sequential processing layers: Bronze (raw), Silver (cleaned), and Gold (business-ready).
+- Modern ELT Architecture: Load raw source data first, then perform transformations directly inside the warehouse.
+
+SUPPORTED DATA MODELING PARADIGMS:
+- Star Schema: Common dimensional design using central Fact tables and surrounding Dimension tables.
+- Snowflake Schema: Dimensional design where dimensions are normalized into multiple sub-tables.
+- Fact Constellation / Galaxy Schema: Dimensional design where multiple Fact tables share common Dimension tables.
+- Data Vault: Uses Hubs (business keys), Links (relationships), and Satellites (context/history) to organize data.
+
+INDEPENDENT DESIGN MANDATE:
+Each dataset and profile must be analyzed independently on its own technical merits. Do NOT reuse generic templates, assumptions, or warehouse-first defaults.
 
 PIPELINE VIEW RULES (Architecture Tab):
 - Show a flowchart representing the high-level data flow through the architecture layers.
-- The diagram must be fully dynamic and driven by the AI-generated structure, where all layers (as subgraphs), nodes (representing sources, ingestion points, storage layers, and consumer applications), and relationships are directly interpreted from the input data profile and chosen architecture strategy.
-- Do NOT hardcode or output a predefined or statically coded layout. The layout must dynamically adapt to the selected architecture (e.g., Medallion, Data Vault 2.0, Lakehouse, Hybrid Cloud).
+- The diagram must be fully dynamic and driven by the AI-generated structure.
+- Do NOT hardcode or output a predefined or statically coded layout.
 - Use ONLY: flowchart LR or graph LR.
-- Do not include detailed column level attributes or PK/FK details; show the high-level flow of data from sources to consumption.
 
 SCHEMA VIEW RULES (Warehouse Tab):
-- Use ONLY: erDiagram
-- Must include:
-  - Fact tables
-  - Dimension tables
-  - Columns with data types
-  - Primary keys (PK)
-  - Foreign keys (FK using surrogate keys only)
-  - Relationships between tables
-- Must NOT include:
-  - Source systems
-  - Ingestion layer
-  - Pipeline flow
-
-SURROGATE KEY ENFORCEMENT:
-- All relationships MUST use *_sk keys
-- Business keys (*_id) are attributes only
-- No OLTP key-based relationships allowed
-
-CROSS-CUTTING REQUIREMENTS:
-Always include:
-- Security
-- Governance
-- Data lineage
-- Metadata tracking
-- Observability
-- Cost awareness
-
-OUTPUT FORMAT (STRICT JSON):
-You MUST output ONLY the specific flat or nested JSON properties requested by the individual Step template below. Do NOT output a full multi-step unified payload skeleton unless explicitly requested.
+- Use ONLY: erDiagram.
+- Must include Fact/Dimension tables (or Hub/Link/Satellites for Data Vault), columns, types, PK, FK, and relationships.
+- Must NOT include source systems, ingestion layers, or pipeline flows.
 """
 
 
@@ -90,17 +73,20 @@ You MUST output ONLY the specific flat or nested JSON properties requested by th
 # ═══════════════════════════════════════════════
 
 ARCH_TYPES = {
-    "medallion": "Medallion (Bronze/Silver/Gold)",
-    "lakehouse": "Enterprise Lakehouse",
-    "data_vault": "Data Vault 2.0",
-    "hybrid_cloud": "Hybrid Cloud Architecture"
+    "three_tier": "Three-tier Architecture",
+    "cloud_dwh": "Cloud Data Warehouse Architecture",
+    "lakehouse": "Lakehouse Architecture",
+    "medallion": "Medallion Architecture",
+    "modern_elt": "Modern ELT Architecture"
 }
 
 PARADIGM_RULES = {
     "STAR_SCHEMA": "Star Schema Modeling",
     "SNOWFLAKE": "Snowflake Schema Modeling",
     "GALAXY": "Galaxy Schema (Fact Constellation)",
-    "DATA_VAULT": "Data Vault 2.0 Modeling"
+    "DATA_VAULT": "Data Vault 2.0 Modeling",
+    "NORMALIZED": "Normalized 3NF Modeling",
+    "EVENT_STREAM": "Event Stream / Topic Modeling"
 }
 
 NAMING_REGISTRY = {
@@ -124,24 +110,32 @@ CRITICAL ARCHITECTURE TAB MANDATE (Pipeline View Only):
 1. MUST display the high-level data pipeline flow dynamically generated based on the selected architecture type and data sources.
 2. The diagram MUST NOT be a static sequence like "Sources --> Ingestion --> Bronze --> Silver --> Gold --> Consumption". It must be a custom flowchart detailing the actual data sources from the profile (e.g., source tables or APIs), passing through subgraphs representing the architecture's layers, and ending with specific consumption nodes (e.g., dashboards, reporting, apps).
 3. Do NOT include tables, attributes, or PK/FK details. The flowchart represents the structural data flow only.
-4. The layers (subgraphs) must reflect the chosen architecture type (e.g. Medallion, Data Vault 2.0, Lakehouse, Hybrid Cloud).
+4. The layers (subgraphs) must reflect the chosen architecture type (e.g. Three-tier, Cloud DWH, Lakehouse, Medallion, Modern ELT).
+5. CRITICAL RECOMMENDATION MANDATE: Analyze the data profile and dynamically select the optimal architecture type and modeling paradigm. Do NOT default to Medallion or Star Schema unless explicitly justified by workload characteristics (e.g. Bronze/Silver/Gold flow fits Medallion, clean separation fits Three-tier).
+6. INDEPENDENT DESIGN MANDATE: Each dataset and profile must be analyzed independently on its own technical merits. Do NOT reuse generic templates, assumptions, or warehouse-first defaults unless they are explicitly required and justified by this specific dataset's volume, latency, security, and workload characteristics.
 
 STRICT OUTPUT (JSON ONLY):
 {
   "mermaid_diagram": "flowchart LR\\n  subgraph Ingestion\\n    src_api[API Source]\\n  end\\n  subgraph Storage\\n    raw_zone[Raw Zone]\\n  end\\n  src_api --> raw_zone",
-  "architecture_type": "MEDALLION | DATA_VAULT | LAKEHOUSE | HYBRID_CLOUD",
-  "modeling_paradigm": "STAR_SCHEMA | SNOWFLAKE | DATA_VAULT",
+  "architecture_type": "THREE_TIER | CLOUD_DWH | LAKEHOUSE | MEDALLION | MODERN_ELT",
+  "modeling_paradigm": "STAR_SCHEMA | SNOWFLAKE | GALAXY_SCHEMA | DATA_VAULT",
   "layers": ["List of layers matching architecture type"],
   "complexity": "L/M/H",
   "estimated_cost_tier": "L/M/H",
   "fitness_metrics": {"Complexity": 50, "Cost": 50, "Scalability": 80, "Performance": 80, "Security": 90},
-  "reasoning_summary": "10-word summary",
+  "reasoning_summary": "Detailed, multi-sentence architectural reasoning explaining why this specific architecture and paradigm were chosen over others.",
+  "architecture_justification": {
+    "why_chosen": "Specific technical reasons based on data volume, skills, latency, compliance, workload, etc.",
+    "alternatives_rejected": ["List of alternative architectures analyzed and why they were rejected for this case"],
+    "assumptions_made": ["Key technical or organizational assumptions made"],
+    "constraints_influenced": ["Physical or business constraints that guided the decision"]
+  },
   "data_model_blueprint": {
-    "schema_type": "Star/Vault/Lakehouse",
+    "schema_type": "Star/Vault/Lakehouse/Normalized/Graph/EventStream",
     "core_entities": ["List"],
     "primary_relationships": ["List"]
   },
-  "data_flow": {"ingestion": "Direct", "processing": "Dynamic", "serving": "Analyst"},
+  "data_flow": {"ingestion": "Direct/Stream/Batch", "processing": "Dynamic/Normalized/Vault", "serving": "Analyst/API/Views"},
   "governance": {"security": "Mandate", "lineage": "Mandate"}
 }
 """
@@ -150,22 +144,28 @@ STRICT OUTPUT (JSON ONLY):
 SCHEMA_MODELING_PROMPT = """
 Step: Physical Tables (Max 3 keywords per desc)
 Arch: __arch_type__ | Paradigm: __paradigm__
+Blueprint: __blueprint__
 Context: __batch_context__
 
-CRITICAL ROOT MANDATE: The pre-validated 'canonical_architecture' context is the SINGLE SOURCE OF TRUTH. 
-Do NOT re-architect, rename layers, or change the modeling paradigm. Strictly inherit defined layer naming, Medallion hierarchy, and FK relationships.
+CRITICAL ROOT MANDATE: The pre-validated 'canonical_architecture' context and 'Blueprint' are the SINGLE SOURCE OF TRUTH.
+Do NOT re-architect, rename layers, or change the modeling paradigm. Strictly inherit defined layer naming, architectural layer hierarchy, and FK relationships.
+You MUST base your physical tables, columns, and ER diagram relationships strictly on the provided Blueprint's core_entities and primary_relationships.
 
-MANDATORY SCHEMA TAB REQUIREMENTS (Warehouse Detailed Model Only):
-1. MUST show the complete Data Warehouse design derived from the Architecture.
-2. Allowed Content: Fact tables, Dimension tables, Curated Silver/Gold warehouse entities.
+MANDATORY SCHEMA TAB REQUIREMENTS (Detailed Schema Model Only):
+1. MUST show the complete schema design derived from the Architecture and the Blueprint.
+2. The schema details and entity structures MUST align with the chosen modeling paradigm and Blueprint:
+   - For Star Schema: Entities must match facts/dimensions from the Blueprint. Must prefix dimension tables in the curated/reporting layer with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE).
+   - For Snowflake Schema: Dimensional design where dimensions are normalized into separate sub-tables.
+   - For Fact Constellation / Galaxy Schema: Shared dimensions across multiple fact tables.
+   - For Data Vault: Entities must be Hubs (`hub_`), Links (`lnk_`), and Satellites (`sat_`). Do NOT generate facts or dimensions.
 3. Mandatory Requirements:
    - Must include full table structures with columns and data types
    - Must define all Primary Keys (PK)
    - Must define all Foreign Keys (FK)
    - Must include relationships between tables
-   - Must follow proper star schema or snowflake schema design, where Gold layer/Dimensional Model tables representing dimension tables are prefixed with 'DIM_' and fact tables are prefixed with 'FACT_' (in UPPERCASE, e.g. DIM_CUSTOMER, FACT_SALES).
-   - Must be fully derived from the Architecture tab
-4. Key Rule: ONLY warehouse-layer modeling is allowed. No source systems, ingestion, or pipeline layers. No high-level architecture elements.
+   - Naming must match the chosen paradigm exactly
+   - Must be fully derived from the Architecture strategy
+4. Key Rule: ONLY schema/modeling entities are allowed. No source systems, ingestion, or pipeline layers. No high-level architecture elements.
 5. Dependency Rule Between Tabs: Architecture = pipeline flow view (high-level only), Schema = detailed warehouse design (low-level relational model). Schema must be generated using Architecture as reference, but only extracting warehouse-relevant entities. Both must be strictly separated with no overlap.
 
 CRITICAL SURROGATE KEY & RELATIONAL MODELING MANDATE:
@@ -173,7 +173,7 @@ CRITICAL SURROGATE KEY & RELATIONAL MODELING MANDATE:
 2. Business keys (`*_id` or similar OLTP identifiers) should exist ONLY as non-key attributes, NOT for defining relationships or foreign key mappings.
 3. Ensure all foreign keys reference surrogate keys consistently (e.g., use `patient_sk`, `room_sk` instead of `patient_id`, `room_id`).
 4. Avoid duplicate identity representation of the same entity using both business keys and surrogate keys for joins.
-5. Maintain strict warehouse dimensional modeling standards and ensure full referential integrity across all entities.
+5. Maintain strict modeling standards matching the selected paradigm and ensure full referential integrity across all entities.
 
 CRITICAL RULES FOR COLUMNS & ENTITIES:
 1. Ensure each entity is absolutely unique. Do NOT output duplicate or repeating table definitions.
@@ -183,7 +183,7 @@ CRITICAL RULES FOR COLUMNS & ENTITIES:
 
 CRITICAL RULE: ALL tables and foreign key targets MUST use EXACTLY these names:
 [__inventory__]
-Do NOT invent dimension or fact tables that are not in this list.
+Do NOT invent tables that are not in this list.
 Ensure the mermaid diagram is highly compressed and non-truncated.
 
 OUTPUT (JSON ONLY):
@@ -192,7 +192,7 @@ OUTPUT (JSON ONLY):
   "tables": [
     {
       "name": "string",
-      "layer": "BRONZE|SILVER|GOLD",
+      "layer": "YOUR_DYNAMIC_LAYER_NAME",
       "columns": [{"name": "entity_sk", "type": "int", "pk": true, "fk": true, "ref": "table.entity_sk"}]
     }
   ]
@@ -201,93 +201,219 @@ OUTPUT (JSON ONLY):
 
 # STEP 2.5: Metadata Analysis
 METADATA_PROMPT = """
-Step: Metadata (Robotic)
+Step: Metadata & Lineage Analysis
 Schema: __schema__
-OUTPUT: {"lin": [{"s": "s", "t": "t"}], "tags": [{"o": "o", "tag": "PII"}]}
+
+Analyze the provided schema and architecture definition. You must perform data lineage tracing and governance tagging.
+
+REQUIREMENTS:
+1. Identify all sensitive columns in the tables (e.g., columns containing names, emails, phones, SSNs, financial/medical data, passwords, etc.). Tag them as "PII", "SENSITIVE", or "CONFIDENTIAL" in the "tags" array.
+2. Build a full column-level data lineage flow ("lin") from the raw source tables/fields to the target warehouse tables.
+3. Every entry in "lin" should contain:
+   - "s": The source object or field (e.g., "src_system.field_name" or a raw landing field)
+   - "t": The target warehouse table name and column (e.g., "DIM_CUSTOMER.EMAIL_ADDRESS" or "hub_customer.customer_id")
+4. Do NOT use static or placeholder values. Map actual source fields to actual target tables and columns generated in the Schema Modeling step.
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "lin": [
+    {"s": "source_system.column", "t": "TARGET_TABLE.COLUMN"}
+  ],
+  "tags": [
+    {"o": "TARGET_TABLE.COLUMN", "tag": "PII | SENSITIVE | CONFIDENTIAL"}
+  ]
+}
 """
 
 # STEP 3: Relationship Design
 RELATIONSHIP_PROMPT = """
-Step: Relationships (Robotic)
+Step: Relationship Design
 Schema: __schema__
 
-CRITICAL MANDATE: Use ONLY surrogate keys (`*_sk`) for all relationships. Business keys (`*_id`) exist only as attributes, NOT for relationships. Ensure all foreign keys reference surrogate keys consistently.
-OUTPUT: {"rel": [{"f": "f", "t": "t", "c": "1:N"}], "mermaid": "erDiagram\\n"}
+Analyze the provided schema and create the primary-to-foreign key relationships.
+
+CRITICAL MANDATE:
+1. Relationships MUST be designed between the actual tables generated in Phase 2.
+2. Use ONLY surrogate keys (`*_sk`) for all relationships.
+3. Business keys (`*_id`) exist ONLY as attributes, NOT for defining relationships or foreign key mappings.
+4. Ensure all foreign keys reference surrogate keys consistently.
+5. Create a clean Mermaid erDiagram displaying these relationships. Use the erDiagram syntax (e.g., TABLE1 ||--o{ TABLE2 : relationship). Do NOT include attributes in this ER diagram (only table relationships).
+
+OUTPUT FORMAT (JSON ONLY):
+{
+  "rel": [
+    {"f": "FROM_TABLE", "t": "TO_TABLE", "c": "1:N | 1:1 | N:M"}
+  ],
+  "mermaid_diagram": "erDiagram\\n  FROM_TABLE ||--o{ TO_TABLE : references\\n"
+}
 """
 
 # STEP 3: Derivative Steps
 PIPELINE_PROMPT = """
-Step: Pipelines (Robotic)
+Step: Pipeline Design
+Canonical Architecture: __arch_type__
+Modeling Paradigm: __paradigm__
+Architecture Layers: __layers__
 Schema: __schema__
 
-CRITICAL ROOT MANDATE: Treat the provided 'canonical_architecture' subset as the absolute single source of truth.
-Do NOT regenerate architectural reasoning or redefine storage strategy/cost tiers. Extract required transformation logic directly from the root blueprint.
-Ensure the mermaid diagram is highly compressed and non-truncated.
+CRITICAL INHERITANCE MANDATE:
+The architecture type, paradigm, and layers above are the SINGLE SOURCE OF TRUTH inherited from Phase 1.
+Do NOT re-architect, change layer names, or deviate from the canonical structure defined above.
+Every pipeline task, subgraph, and node in the Mermaid diagram MUST align with these exact architecture layers.
 
-OUTPUT (JSON ONLY):
+Analyze the selected architecture strategy and conformed tables, and design the ELT/ETL transformation pipeline tasks.
+
+REQUIREMENTS:
+1. Design realistic orchestration tasks that flow data sequentially through the chosen architecture's layers:
+   - If MEDALLION: flow must go from Raw Source Files -> Bronze tables, Bronze -> Silver (cleansing/transformation), Silver -> Gold (business metrics, fact/dim tables).
+   - If DATA_VAULT: flow must go from Staging tables -> parallel Hub/Link/Satellite loading, Hubs/Links/Satellites -> Info Marts.
+   - If LAKEHOUSE or CLOUD_DWH: flow must go from Landing -> Conformed -> Curated.
+   - If THREE_TIER: flow must go from Operational Sources -> Storage Layer -> Processing Layer -> Reporting Layer.
+   - If MODERN_ELT: flow must go from Sources -> Raw Warehouse -> Transformed/Serving Layer.
+2. For each task, define:
+   - "n": A clear name representing the task (e.g., "load_dim_customer" or "transform_silver_orders")
+   - "s": The input source table or source file path (e.g., "raw.customer_csv" or "bronze.customer_raw")
+   - "t": The target conformed warehouse table name (which must be a real table name from the conformed schema)
+   - "l": A description of the transformation logic applied (e.g., cleansing, joining, type-casting, MD5 hashing of keys)
+3. Construct a visual Mermaid flowchart diagram representing this execution DAG.
+   - Group the processing tasks into subgraphs matching the architectural layers defined in 'Architecture Layers' above.
+   - The nodes in the diagram MUST be the actual warehouse table names and sources. Do NOT use static place-holders like T1, T2, SRC, or LNZ.
+   - Use "flowchart LR" or "graph LR" for the diagram.
+
+OUTPUT FORMAT (JSON ONLY):
 {
-  "mermaid_diagram": "graph LR\\n  T1 --> T2",
-  "tasks": [{"n": "n", "s": "s", "t": "t", "l": "logic"}]
+  "mermaid_diagram": "flowchart LR\\n  subgraph LayerName\\n    table_id['Table Label']\\n  end\\n  src --> table_id",
+  "tasks": [
+    {"n": "task_name", "s": "source_table_or_file", "t": "target_table", "l": "transformation_logic_description"}
+  ]
 }
 """
 
 GOV_RBAC_PROMPT = """
-Step: Governance (Robotic)
+Step: Governance & Security Design
+Canonical Architecture: __arch_type__
+Modeling Paradigm: __paradigm__
+Architecture Layers: __layers__
 Schema: __schema__
 
-CRITICAL ROOT MANDATE: Treat the provided 'canonical_architecture' subset as the absolute single source of truth.
-Strictly enforce the pre-defined governance model, RBAC policies, and storage tiers without re-architecting rules.
-Ensure the mermaid diagram explicitly declares every referenced node with clear shapes/labels (e.g. NodeID['Label']), avoiding implicit layout drops. Group RBAC roles and policies logically into clean subgraphs.
-Ensure the mermaid diagram is highly compressed and non-truncated.
+CRITICAL INHERITANCE MANDATE:
+The architecture type, paradigm, and layers above are the SINGLE SOURCE OF TRUTH inherited from Phase 1.
+Do NOT re-architect or change the governance model. All roles, grants, and table references in the diagram must strictly match the conformed tables and layers from this architecture.
 
-OUTPUT (JSON ONLY):
+Analyze the provided conformed schema columns (specifically focusing on columns marked with sensitive/PII flags) and the selected architecture strategy. Design the security roles, column-level masking policies, compliance checklists, and access flow.
+
+REQUIREMENTS:
+1. Define a list of RBAC roles ("roles") appropriate for the chosen architecture (e.g. INGEST_OPERATOR for raw ingestion, DATA_ENGINEER for conformed storage, BI_ANALYST for final consumption).
+   - "n": Name of the role
+   - "g": List of grants. Each grant must specify:
+     - "o": The database object name (e.g., specific target tables or schemas)
+     - "p": The access privilege list (e.g., ["SELECT", "INSERT", "USAGE"])
+2. Define masking policies ("mask") for the actual sensitive/PII columns detected in the conformed schema (e.g. patient name, email, salary, SSN).
+   - "n": Name of the column to mask (must be a real column name from the conformed schema)
+   - "t": Masking algorithm or method (e.g., "SHA2", "PARTIAL_MASK", "FULL_MASK")
+   - "e": The role to which this mask is enforced (e.g., "BI_ANALYST")
+3. Generate a compliance checklist ("compliance_checklist") outlining specific audit and privacy compliance steps tailored to the dataset domain (e.g. HIPAA audit logging, GDPR right-to-be-forgotten mapping).
+4. Construct a Mermaid flowchart ("mermaid_diagram") depicting how users, roles, security masking policies, and conformed schema tables are related.
+   - Use "graph LR" or "flowchart LR".
+   - The nodes MUST represent the actual conformed table names and defined roles. Do NOT use static placeholders like SRC or LNZ.
+
+OUTPUT FORMAT (JSON ONLY):
 {
-  "mermaid_diagram": "graph LR\\n  SRC --> LNZ",
-  "roles": [{"n": "role_name", "g": [{"o": "object_name", "p": ["SELECT", "USAGE"]}]}],
-  "mask": [{"n": "column_name", "t": "masking_type", "e": "enforced_role"}],
-  "compliance_checklist": ["checklist_item"]
+  "mermaid_diagram": "graph LR\\n  subgraph Access\\n    role_id['Role Label']\\n  end\\n  role_id --> table_id",
+  "roles": [
+    {
+      "n": "ROLE_NAME",
+      "g": [{"o": "OBJECT_NAME", "p": ["SELECT", "USAGE"]}]
+    }
+  ],
+  "mask": [
+    {"n": "COLUMN_NAME", "t": "MASKING_TYPE", "e": "ENFORCED_ROLE"}
+  ],
+  "compliance_checklist": [
+    "Compliance checklist item description"
+  ]
 }
 """
 
 DDL_PROMPT = """
-Step: DDL (Robotic SQL)
+Step: DDL & Deployment SQL Generation
 Schema: __table_schema__
+
+Generate the target Snowflake SQL scripts matching the conformed table structures exactly.
 
 STRICT DDL RULES:
 1. ALWAYS use standard `CREATE TABLE` statement syntax. Do NOT use `CREATE HYBRID TABLE`.
 2. Ensure all columns, primary keys, and foreign keys are created correctly for standard Snowflake tables.
-3. Standard Snowflake tables support inline or outline primary key and foreign key declarations, but they are not enforced. Generate clean standard constraints.
+3. Generate the following outputs:
+   - "ddl_sql": The CREATE TABLE statements, primary key declarations, and foreign key constraints.
+   - "grant_sql": Grant privileges (SELECT, INSERT, UPDATE, USAGE) on the generated schemas and tables to the custom roles designed in the governance step.
+   - "transform_sql": A sample INSERT INTO or MERGE statement demonstrating how data is loaded/transformed into the target table from its staging/bronze counterpart.
 
-OUTPUT (JSON ONLY):
+OUTPUT FORMAT (JSON ONLY):
 {
-  "ddl_sql": "SQL",
-  "grant_sql": "SQL"
+  "ddl_sql": "CREATE TABLE ...",
+  "grant_sql": "GRANT SELECT ON ...",
+  "transform_sql": "INSERT INTO ..."
 }
 """
 
 HISTORY_PROMPT = """
-Step: History — __now__
-OUTPUT:
+Step: History & Architectural Assumptions
+Canonical Architecture: __arch_type__
+Modeling Paradigm: __paradigm__
+Architecture Layers: __layers__
+Schema: __schema__
+
+CRITICAL INHERITANCE MANDATE:
+The architecture type, paradigm, and layers above are the SINGLE SOURCE OF TRUTH inherited from Phase 1.
+All assumptions and change log entries MUST directly reference these exact architecture type, layers, and conformed table names. Do NOT fabricate or generalize.
+
+Review the chosen architecture strategy, layers, and conformed tables. Generate the key structural assumptions and change log.
+
+REQUIREMENTS:
+1. Identify 3-5 critical technical and operational assumptions made for this design based on the selected architecture type and naming conventions.
+2. Generate a change log history entry detailing the design steps taken (e.g., "v1.0 initial model setup using DATA_VAULT modeling paradigm").
+3. All assumptions and change logs must relate directly to the chosen architecture, paradigm, and actual table names in the schema.
+4. Output the current ISO timestamp as "generated_at".
+
+OUTPUT FORMAT (JSON ONLY):
 {
   "version": "v1.0",
-  "assumptions": ["List"],
-  "change_log": ["List"]
+  "generated_at": "__now__",
+  "assumptions": [
+    "Assumption statement tailored to the chosen architecture and dataset"
+  ],
+  "change_log": [
+    "Change log description/revision detail tailored to the chosen architecture and dataset"
+  ]
 }
 """
 
 # STEP 6: Final Blueprint
 FINAL_BLUEPRINT_PROMPT = """
-Step: Final Blueprint (Robotic)
+Step: Final Blueprint Synthesis
 Results: __results__
 
-OUTPUT (JSON ONLY):
+Synthesize a comprehensive final architectural blueprint and technical documentation summarizing the completed unified warehouse design.
+
+REQUIREMENTS:
+1. "summary": A concise 10-word summary of the finalized data warehouse design.
+2. "score": An architectural readiness and compliance score from 0 to 100 based on standard modeling practices.
+3. "documentation": A dictionary containing:
+   - "executive_summary": A detailed summary of the entire warehouse design, explaining how the selected architecture meets the business requirements and listing the specific layers.
+   - "architecture_decision": A comprehensive technical justification of the chosen modeling paradigm (e.g. Star, Data Vault), storage design, security guardrails, and transformation flow.
+   - "key_entities": A list of the key conformed tables and their specific business and architectural roles in the system.
+
+OUTPUT FORMAT (JSON ONLY):
 {
-  "summary": "10-word summary",
-  "score": 0-100,
+  "summary": "Concise 10-word summary",
+  "score": 95,
   "documentation": {
-    "executive_summary": "High-level summary of the entire data warehouse architecture...",
-    "architecture_decision": "Detailed justification of modeling paradigm, layers, and database choices...",
-    "key_entities": ["List of core entities and their roles..."]
+    "executive_summary": "Detailed high-level business and technical summary...",
+    "architecture_decision": "In-depth technical modeling and layer justifications...",
+    "key_entities": [
+      "TABLE_NAME: Brief explanation of its role"
+    ]
   }
 }
 """
@@ -321,7 +447,7 @@ def compress_profile(profile: Dict[str, Any], mode: str = "meso") -> str:
     max_t = 100 if mode == "macro" else 50
     
     if len(all_tables) > max_t:
-        print(f"      [⚠️ CONTEXT] Pruned {len(all_tables) - max_t} tables from profile to prevent token overflow.")
+        print(f"      [CONTEXT] Pruned {len(all_tables) - max_t} tables from profile to prevent token overflow.")
         
     tables = all_tables[:max_t]
     
@@ -355,16 +481,31 @@ def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
 
     # Extract canonical architecture subset to inject directly into downstream context
     arch_subset = {
-        "type": arch.get("architecture_type", "Medallion"),
-        "paradigm": arch.get("modeling_paradigm", "Star Schema"),
-        "layers": arch.get("layers", ["Bronze", "Silver", "Gold"])
+        "architecture_type": arch.get("architecture_type", "AI Recommended"),
+        "modeling_paradigm": arch.get("modeling_paradigm", "Dynamic Paradigm"),
+        "layers": arch.get("layers", ["Dynamic Layers"]),
+        "data_model_blueprint": arch.get("data_model_blueprint", {}),
+        "data_flow": arch.get("data_flow", {}),
+        "governance": arch.get("governance", {})
     }
     
     if arch and step_name != "architecture":
-        print(f"      [🏛️ ARCHITECTURE REUSE] Reusing canonical context ({arch_subset['type']} / {arch_subset['paradigm']}) for {step_name}")
+        print(f"      [ARCHITECTURE REUSE] Reusing canonical context ({arch_subset['architecture_type']} / {arch_subset['modeling_paradigm']}) for {step_name}")
 
-    if step_name in ["pipeline", "gov_rbac"]:
-        safe_tables = [{"n": t.get("name"), "l": t.get("layer")} for t in tables[:30] if isinstance(t, dict)]
+    if step_name == "pipeline":
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type")} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
+        return {"arch": arch_subset, "tables": safe_tables}
+
+    elif step_name == "gov_rbac":
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type"), "flags": c.get("flags", [])} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
         return {"arch": arch_subset, "tables": safe_tables}
         
     elif step_name == "relationship_design":
@@ -376,9 +517,20 @@ def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
         return {"arch": arch_subset, "tables": light_tables}
         
     elif step_name == "metadata_analysis":
-        safe_tables = [{"n": t.get("name"), "l": t.get("layer")} for t in tables[:40] if isinstance(t, dict)]
+        safe_tables = []
+        for t in tables[:40]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type"), "flags": c.get("flags", [])} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
         return {"arch": arch_subset, "tables": safe_tables}
         
+    elif step_name == "history":
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer")})
+        return {"arch": arch_subset, "tables": safe_tables}
+
     elif step_name == "final_blueprint":
         return {
             "arch": arch_subset,
@@ -404,25 +556,42 @@ def build_prompt(step_name: str, requirements: Dict[str, Any], data_profile: Dic
     profile_txt = compress_profile(data_profile, mode=lod_mode)
     req_txt = "; ".join(f"{k}:{v}" for k, v in requirements.items() if v and k not in ["db", "schema", "tables"])
     arch = results.get("architecture_strategy", {})
-    paradigm = str(arch.get("modeling_paradigm", "STAR_SCHEMA")).upper().replace(" ", "_")
+    if not isinstance(arch, dict): arch = {}
+    paradigm = str(arch.get("modeling_paradigm", "DYNAMIC_PARADIGM")).upper().replace(" ", "_")
+    arch_type = str(arch.get("architecture_type", "AI_RECOMMENDED")).upper().replace(" ", "_")
+    layers_txt = ", ".join(arch.get("layers", ["Dynamic Layers"])) if isinstance(arch.get("layers"), list) else str(arch.get("layers", "Dynamic Layers"))
 
     if step in ["architecture", "architecture_strategy"]:
         p = ARCH_STRATEGY_PROMPT.replace("__req__", req_txt).replace("__profile__", profile_txt)
     elif step == "schema_modeling":
-        layers = ", ".join(arch.get("layers", ["Bronze", "Silver", "Gold"]))
+        layers = ", ".join(arch.get("layers", ["Dynamic Layers"]))
         batch_ctx = requirements.get("batch_context", "Full Model")
         inventory = ", ".join(requirements.get("global_inventory", []))
-        p = SCHEMA_MODELING_PROMPT.replace("__layers__", layers).replace("__arch_type__", str(arch.get("architecture_type", ""))).replace("__paradigm__", paradigm).replace("__profile__", profile_txt).replace("__batch_context__", batch_ctx).replace("__inventory__", inventory)
+        blueprint_info = json.dumps(arch.get("data_model_blueprint", {}), indent=2)
+        p = SCHEMA_MODELING_PROMPT.replace("__layers__", layers).replace("__arch_type__", str(arch.get("architecture_type", ""))).replace("__paradigm__", paradigm).replace("__profile__", profile_txt).replace("__batch_context__", batch_ctx).replace("__inventory__", inventory).replace("__blueprint__", blueprint_info)
     elif step == "pipeline":
-        p = PIPELINE_PROMPT.replace("__schema__", json.dumps(pruned))
+        p = (PIPELINE_PROMPT
+             .replace("__arch_type__", arch_type)
+             .replace("__paradigm__", paradigm)
+             .replace("__layers__", layers_txt)
+             .replace("__schema__", json.dumps(pruned)))
     elif step == "gov_rbac":
-        p = GOV_RBAC_PROMPT.replace("__schema__", json.dumps(pruned))
+        p = (GOV_RBAC_PROMPT
+             .replace("__arch_type__", arch_type)
+             .replace("__paradigm__", paradigm)
+             .replace("__layers__", layers_txt)
+             .replace("__schema__", json.dumps(pruned)))
     elif step == "ddl":
         # Check both 'target_table_schema' and 'schema_modeling' for DDL generation
         schema_src = results.get("target_table_schema") or results.get("schema_modeling") or {}
         p = DDL_PROMPT.replace("__table_schema__", json.dumps(prune_for_ddl(schema_src)))
     elif step == "history":
-        p = HISTORY_PROMPT.replace("__now__", datetime.datetime.now().isoformat())
+        p = (HISTORY_PROMPT
+             .replace("__arch_type__", arch_type)
+             .replace("__paradigm__", paradigm)
+             .replace("__layers__", layers_txt)
+             .replace("__now__", datetime.datetime.now().isoformat())
+             .replace("__schema__", json.dumps(pruned)))
     elif step == "metadata_analysis":
         p = METADATA_PROMPT.replace("__schema__", json.dumps(pruned))
     elif step == "relationship_design":
@@ -436,17 +605,27 @@ STEP_JSON_SCHEMAS = {
     "architecture_strategy": {
         "type": "object",
         "properties": {
-            "architecture_type":   {"type": "string"},
-            "modeling_paradigm":   {"type": "string"},
-            "layers":              {"type": "array",  "items": {"type": "string"}},
-            "mermaid_diagram":     {"type": "string"},
-            "complexity":          {"type": "string"},
-            "reasoning_summary":   {"type": "string"},
-            "fitness_metrics":     {"type": "object"},
-            "data_flow":           {"type": "object"},
-            "governance":          {"type": "object"},
+            "architecture_type":          {"type": "string"},
+            "modeling_paradigm":          {"type": "string"},
+            "layers":                     {"type": "array",  "items": {"type": "string"}},
+            "mermaid_diagram":            {"type": "string"},
+            "complexity":                 {"type": "string"},
+            "reasoning_summary":          {"type": "string"},
+            "fitness_metrics":            {"type": "object"},
+            "architecture_justification": {
+                "type": "object",
+                "properties": {
+                    "why_chosen":             {"type": "string"},
+                    "alternatives_rejected":  {"type": "array", "items": {"type": "string"}},
+                    "assumptions_made":       {"type": "array", "items": {"type": "string"}},
+                    "constraints_influenced": {"type": "array", "items": {"type": "string"}}
+                },
+                "required": ["why_chosen", "alternatives_rejected", "assumptions_made", "constraints_influenced"]
+            },
+            "data_flow":                  {"type": "object"},
+            "governance":                 {"type": "object"},
         },
-        "required": ["architecture_type", "modeling_paradigm", "layers", "mermaid_diagram"]
+        "required": ["architecture_type", "modeling_paradigm", "layers", "mermaid_diagram", "architecture_justification"]
     },
     "schema_modeling": {
         "type": "object",
@@ -553,9 +732,10 @@ STEP_JSON_SCHEMAS = {
     "history": {
         "type": "object",
         "properties": {
-            "version":     {"type": "string"},
-            "assumptions": {"type": "array", "items": {"type": "string"}},
-            "change_log":  {"type": "array", "items": {"type": "string"}}
+            "version":      {"type": "string"},
+            "generated_at": {"type": "string"},
+            "assumptions":  {"type": "array", "items": {"type": "string"}},
+            "change_log":   {"type": "array", "items": {"type": "string"}}
         },
         "required": ["assumptions"]
     },
@@ -605,10 +785,11 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 
 1. LAYER COMPLETENESS ENFORCEMENT
 - The Architecture and Schema MUST dynamically include all layers appropriate for the selected architecture type:
-  * For Medallion: Bronze, Silver, Gold, Consumption layers.
-  * For Data Vault 2.0: Ingestion/Stage, Raw Vault (Hubs, Links, Satellites), Business Vault, Info Marts.
-  * For Lakehouse: Raw/Landing, Cleaned/Conformed, Curated/Enriched, semantic layers.
-  * For Hybrid Cloud: Cloud storage, On-prem storage, Hybrid Integration layers.
+  * For Three-tier Architecture: Storage, Processing, Reporting layers.
+  * For Cloud Data Warehouse Architecture: Staging, Conformed, Enriched layers.
+  * For Lakehouse Architecture: Raw/Landing, Cleaned/Conformed, Curated/Enriched layers.
+  * For Medallion Architecture: Bronze, Silver, Gold, Consumption layers.
+  * For Modern ELT Architecture: Staging, Raw Warehouse, Transformed layers.
 - Do NOT force a single hardcoded layer structure on all architecture types. Allow layers, subgraphs, and node structures to be fully dynamic and tailored to the chosen architecture model.
 - If any core layer of the chosen architecture model is missing → auto-generate it.
 
@@ -629,13 +810,8 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 - Ensure referential integrity across all layers
 
 5. SCHEMA COMPLETENESS RULE
-- Must include:
-  - Fact tables
-  - Dimension tables
-  - Staging (Bronze)
-  - Conformed (Silver)
-  - Marts (Gold)
-  - Semantic/KPI layer tables
+- Must include all necessary tables and layers for the specifically chosen architecture model and modeling paradigm.
+- Ensure the schema aligns perfectly with the chosen architecture strategy (e.g. Medallion, Data Vault, Lakehouse).
 - No duplicate or overlapping entities across layers
 
 6. MERMAID DIAGRAM RULE
@@ -662,6 +838,10 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 - Do NOT generate Hybrid Tables (`CREATE HYBRID TABLE`).
 - Do NOT mix hybrid and standard tables, as Snowflake does not support cross-table-type foreign key constraints, which will cause deployment errors.
 
+10. UNIFIED FLOW & NO PLACEHOLDERS
+- All downstream stages (Pipeline, Governance, DDL, Lineage) must strictly reference the actual table names, column schemas, and types generated in the Schema Modeling stage.
+- Do NOT use generic placeholders or static stubs like 'T1', 'T2', 'SRC', or 'LNZ' in any diagram or list. Build a completely dynamic, context-aware layout unique to the input data.
+
 ═══════════════════════════════════════════════
 ARCHITECTURE FIX RULES
 ═══════════════════════════════════════════════
@@ -674,8 +854,9 @@ SCHEMA FIX RULES
 ═══════════════════════════════════════════════
 - Must include full warehouse design
 - Must include all layers appropriate to the selected architecture
-- Must include modeling structures matching the paradigm (e.g., Fact/Dimension for Star/Snowflake, Hub/Link/Satellite for Data Vault)
-- If using Star Schema or Snowflake Modeling, must prefix dimension tables in the Gold layer/Dimensional Model with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE). If using Data Vault 2.0, follow Hub (`hub_`), Link (`lnk_`), Satellite (`sat_`) naming conventions.
+- Must include modeling structures matching the paradigm (e.g., Fact/Dimension for Star Schema or Snowflake Schema, Hub/Link/Satellite for Data Vault, shared dimensions for Galaxy Schema)
+- If using Star Schema, Snowflake Schema, or Fact Constellation / Galaxy Schema: Must prefix dimension tables in the curated/reporting layer with 'DIM_' and fact tables with 'FACT_' (in UPPERCASE).
+- If using Data Vault: Follow Hub (`hub_`), Link (`lnk_`), Satellite (`sat_`) naming conventions. Do NOT use fact or dimension tables.
 - Must enforce surrogate key relationships only
 - Must not include ingestion or source systems
 
@@ -702,3 +883,10 @@ Before output, ensure:
 """
         return base + suffix
     return SYSTEM_PROMPT + suffix
+
+# ═══════════════════════════════════════════════
+# CONTINUATION PROMPT FOR TRUNCATED OUTPUTS
+# ═══════════════════════════════════════════════
+CONTINUATION_PROMPT = """
+Your previous output was truncated. Please continue generating the JSON content from the exact character where it left off. Do not repeat the previous content, do not start a new JSON block, and do not wrap in markdown tags. Output ONLY the remaining valid JSON characters.
+"""

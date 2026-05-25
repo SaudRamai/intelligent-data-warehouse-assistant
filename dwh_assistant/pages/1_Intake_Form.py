@@ -231,7 +231,8 @@ def main():
         c1, c2 = st.columns(2, gap="large")
         with c1:
             priority = st.radio("Optimization", ["Performance", "Cost", "Speed", "Balanced"], index=3, horizontal=True)
-            modeling = st.selectbox("Paradigm", ["AI Recommendation", "Star Schema", "Data Vault 2.0", "Medallion", "Hybrid"], index=0)
+            architecture = st.selectbox("Warehouse Architecture", ["AI Recommendation", "Three-tier Architecture", "Cloud Data Warehouse", "Lakehouse Architecture", "Medallion Architecture", "Modern ELT Architecture"], index=0)
+            modeling = st.selectbox("Data Modeling Paradigm", ["AI Recommendation", "Star Schema", "Snowflake Schema", "Fact Constellation / Galaxy", "Data Vault"], index=0)
         
         with c2:
             skill = st.radio("Team Skill", ["Junior", "Mid", "Senior"], horizontal=True)
@@ -243,7 +244,13 @@ def main():
              st.session_state["current_section"] -= 1
              st.rerun()
         if col2.button("INITIALIZE ARCHITECT", type="primary", width='stretch'):
-            st.session_state["form_buffer"].update({"priority": priority, "team_skill": skill, "modeling_preference": modeling, "budget_tier": budget})
+            st.session_state["form_buffer"].update({
+                "priority": priority, 
+                "team_skill": skill, 
+                "architecture_preference": architecture,
+                "modeling_preference": modeling, 
+                "budget_tier": budget
+            })
             st.session_state["requirements"] = st.session_state["form_buffer"]
             st.session_state["form_complete"] = True
             st.switch_page("pages/2_Data_Profile.py")

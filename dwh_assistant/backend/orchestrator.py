@@ -85,7 +85,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
             
         if cache_hash in st.session_state["cortex_memory_cache"] and not last_error:
             cached_out = st.session_state["cortex_memory_cache"][cache_hash]
-            print(f"\n[⚡ AI CACHE HIT] Memory cache loaded instantly for '{step_name}'")
+            print(f"\n[AI CACHE HIT] Memory cache loaded instantly for '{step_name}'")
             safe_callback(status_callback, step_name, "done", cached_out)
             return cached_out
             
@@ -94,7 +94,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                 with open(cache_file, "r", encoding="utf-8") as f:
                     cached_out = json.load(f)
                 st.session_state["cortex_memory_cache"][cache_hash] = cached_out
-                print(f"\n[⚡ AI CACHE HIT] Disk cache loaded instantly for '{step_name}'")
+                print(f"\n[AI CACHE HIT] Disk cache loaded instantly for '{step_name}'")
                 safe_callback(status_callback, step_name, "done", cached_out)
                 return cached_out
             except Exception: pass
@@ -209,7 +209,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                             tname = t.get("name", f"Task_{idx}")
                             tsrc = t.get("source", "Source")
                             lines.append(f"    {tsrc} --> {tname}")
-                        output["mermaid_diagram"] = "\n".join(lines) if len(lines) > 1 else "graph TD\n  Bronze --> Silver --> Gold"
+                        output["mermaid_diagram"] = "\n".join(lines) if len(lines) > 1 else "graph TD\n  Source --> Staging --> Target"
 
                     if step_name == "governance_security" and not output.get("mermaid_diagram"):
                         lines = ["graph LR"]
@@ -249,10 +249,10 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                     return output
                 else:
                     keys_found = list(output.keys()) if isinstance(output, dict) else "NON-DICT OUTPUT"
-                    print(f"\n      ❌ [VALIDATION FAILED] {step_name} (Attempt {attempt+1}): Missing keys. Found: {keys_found}")
+                    print(f"\n      [VALIDATION FAILED] {step_name} (Attempt {attempt+1}): Missing keys. Found: {keys_found}")
                     current_error = "Missing or invalid required keys"
             else:
-                print(f"\n      ❌ [EXECUTION FAILED] {step_name} (Attempt {attempt+1}): {response.get('error', 'Unknown Error')}")
+                print(f"\n      [EXECUTION FAILED] {step_name} (Attempt {attempt+1}): {response.get('error', 'Unknown Error')}")
                 current_error = response.get('error', 'Unknown Error')
                 
         return {"success": False, "error": f"Max retries exceeded for {step_name}"}
@@ -283,7 +283,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
     tables = schema.get("tables", [])
     if not tables: return {"ddl_sql": "-- No tables found"}
 
-    print(f"\n      [🏗️ DDL DERIVATIVE] Generating DDL for {len(tables)} tables...")
+    print(f"\n      [DDL DERIVATIVE] Generating DDL for {len(tables)} tables...")
     
     all_ddls = []
     all_grants = []
@@ -340,7 +340,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
     all_tables = data_profile.get("tables", [])
     if not all_tables: return {"tables": [], "relationships": [], "mermaid_diagram": ""}
 
-    print(f"\n      [🏗️ PARALLEL SCHEMA] Modeling {len(all_tables)} tables in parallel...")
+    print(f"\n      [PARALLEL SCHEMA] Modeling {len(all_tables)} tables in parallel...")
     
     # 1. Provide a global inventory of all tables to every batch to ensure FK consistency
     inventory = [t.get("name") for t in all_tables]
@@ -405,7 +405,7 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
     ctx = _get_ctx()
     results = initial_results or {}
     try:
-        print(f"\n[🚀 DEPENDENCY ORCHESTRATOR] Starting DAG Execution")
+        print(f"\n[DEPENDENCY ORCHESTRATOR] Starting DAG Execution")
         
         # --- 1. ARCHITECTURE (Sequential Root) ---
         print("\n--- PHASE 1: ARCHITECTURE ---")
@@ -469,7 +469,7 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         if "final_blueprint" in results and isinstance(results["final_blueprint"], dict):
             results["documentation_design"] = results["final_blueprint"].get("documentation") or results["final_blueprint"]
         
-        print("\n[🎉 SUCCESS] Dependency-Based Pipeline Completed.\n")
+        print("\n[SUCCESS] Dependency-Based Pipeline Completed.\n")
         
         # VERIFICATION COMMANDS
         print("\n[ORCHESTRATOR] Final Results Keys:")
@@ -481,7 +481,7 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         return final_wrapped
         
     except Exception as e:
-        print(f"\n[💥 CRITICAL FAILURE] Orchestrator crashed: {e}")
+        print(f"\n[CRITICAL FAILURE] Orchestrator crashed: {e}")
         err_wrapped = {"success": False, "error": str(e)}
         st.session_state["generation_results"] = err_wrapped
         return err_wrapped

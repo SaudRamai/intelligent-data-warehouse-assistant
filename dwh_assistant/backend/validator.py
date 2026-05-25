@@ -102,11 +102,11 @@ def heal_mermaid_flow(mermaid: str) -> str:
     
     # Layer Weighting for directional enforcement
     layer_weights = {
-        "source": 0, "src": 0, "erp": 0, "crm": 0, "app": 0, "s1": 0, "s2": 0, "s3": 0, "s4": 0,
-        "bronze": 1, "raw_": 1, "b1": 1, "b2": 1,
-        "silver": 2, "stg_": 2, "s1a": 2, "s2a": 2,
-        "gold": 3, "fct_": 3, "dim_": 3, "fact_": 3, "s1b": 3, "s2b": 3, "g1": 3, "g2": 3,
-        "consumption": 4, "bi": 4, "analytics": 4, "analyst": 4, "cortex": 4
+        "source": 0, "src": 0, "erp": 0, "crm": 0, "app": 0, "s1": 0, "s2": 0, "s3": 0, "s4": 0, "feed": 0, "landing": 0,
+        "bronze": 1, "raw": 1, "raw_vault": 1, "hub": 1, "lnk": 1, "sat": 1, "b1": 1, "b2": 1, "stage": 1, "stg": 1, "ingest": 1,
+        "silver": 2, "cleaned": 2, "conformed": 2, "stg_": 2, "business_vault": 2, "bv_": 2, "s1a": 2, "s2a": 2,
+        "gold": 3, "curated": 3, "enriched": 3, "semantic": 3, "infomart": 3, "mart": 3, "info_mart": 3, "fct_": 3, "dim_": 3, "fact_": 3, "s1b": 3, "s2b": 3, "g1": 3, "g2": 3, "presentation": 3,
+        "consumption": 4, "bi": 4, "analytics": 4, "analyst": 4, "cortex": 4, "reporting": 4, "dashboard": 4, "app_": 4
     }
     
     def get_weight(node_text: str) -> int:

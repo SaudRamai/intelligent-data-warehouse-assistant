@@ -126,7 +126,7 @@ def main():
             cached = st.session_state.get(key)
             is_done = step_is_complete(key, cached)
             
-            icon = "✅" if is_done else " (Wait)"
+            icon = "[Done]" if is_done else " (Wait)"
             color = "#10B981" if is_done else "#64748B"
             
             status_placeholders[key] = st.empty()
@@ -228,7 +228,7 @@ def main():
                     
                     # If we have raw output, show it in a debug box
                     if isinstance(data, dict) and data.get("raw"):
-                        with st.expander("🔍 VIEW RAW AI OUTPUT (DEBUG)", expanded=True):
+                        with st.expander("VIEW RAW AI OUTPUT (DEBUG)", expanded=True):
                             st.code(data["raw"], language="json")
                             st.info("Check Line 3 for missing commas or structural issues.")
 

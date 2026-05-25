@@ -35,10 +35,9 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
     # Detect truncation BEFORE healing so we capture the raw AI output signal
     if detect_truncation(code):
         st.warning(
-            "⚠️ **Diagram may be incomplete.** The AI response was likely cut off due to response "
+            "**Diagram may be incomplete.** The AI response was likely cut off due to response "
             "size limits. The diagram below shows what could be rendered. To get a full diagram, "
-            "try: reducing schema complexity, splitting into fewer tables, or regenerating.",
-            icon="⚠️"
+            "try: reducing schema complexity, splitting into fewer tables, or regenerating."
         )
         print("[DWH LOG] Truncation detected in Mermaid output.")
 
@@ -1058,11 +1057,11 @@ def main():
             )
             
             if checks:
-                st.markdown("##### 📊 Design Quality Report")
+                st.markdown("##### Design Quality Report")
                 q_cols = st.columns(len(checks))
                 for idx, (check_name, check_fn) in enumerate(checks.items()):
                     passed = check_fn(current_code)
-                    q_cols[idx % len(q_cols)].markdown(f"{'✅' if passed else '❌'} <small>{check_name}</small>", unsafe_allow_html=True)
+                    q_cols[idx % len(q_cols)].markdown(f"{'[PASS]' if passed else '[FAIL]'} <small>{check_name}</small>", unsafe_allow_html=True)
 
 
 
@@ -1098,7 +1097,7 @@ def main():
     if not ddl: missing_components.append("DDL Artifacts")
     
     if missing_components:
-        st.error(f"⚠️ Missing Components: {', '.join(missing_components)}")
+        st.error(f"Missing Components: {', '.join(missing_components)}")
         st.info("Please return to the AI Generation page to complete the architecture design.")
         if st.button("← Go to AI Generation"):
             st.switch_page("pages/3_AI_Generation.py")
@@ -1134,7 +1133,7 @@ def main():
             <div style="background: rgba(15, 23, 42, 0.05); padding: 15px; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 25px; border-left: 4px solid #0EA5E9;">
                 <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center;">
-                        <span style="font-weight: 700; color: #0F172A; margin-right: 15px;">🚀 AI CORE ACTIVE:</span>
+                        <span style="font-weight: 700; color: #0F172A; margin-right: 15px;">AI CORE ACTIVE:</span>
                         <span style="color: #64748B; font-size: 0.9rem;">Parallel workstreams are populating tabs in real-time...</span>
                     </div>
                     <div style="display: flex; align-items: center;">
@@ -1280,12 +1279,12 @@ def main():
         
         c1, c2 = st.columns([1, 1])
         with c1:
-            st.markdown("#### 🎯 Architectural Reasoning")
+            st.markdown("#### Architectural Reasoning")
             reasoning = blueprint.get("reasoning_summary") or blueprint.get("selection_logic", {}).get("business_rationale") or blueprint.get("reasoning", {}).get("selection", "N/A")
             st.markdown(f"<div style='color: #1a3c61; margin-bottom: 20px;'>{reasoning}</div>", unsafe_allow_html=True)
         
         with c2:
-            st.markdown("#### 📈 Architectural Fitness Profile")
+            st.markdown("#### Architectural Fitness Profile")
             st.vega_lite_chart(fitness_df, {
                 'mark': {'type': 'bar', 'cornerRadiusEnd': 4, 'fill': '#38BDF8'},
                 'encoding': {
@@ -1296,12 +1295,43 @@ def main():
                 'height': 250, 'background': 'transparent'
             }, width='stretch')
 
+        justification = blueprint.get("architecture_justification")
+        if justification and isinstance(justification, dict):
+            st.markdown("<br>", unsafe_allow_html=True)
+            st.markdown("### Architectural Decision Justification")
+            jc1, jc2 = st.columns(2)
+            with jc1:
+                st.markdown(f"**Why Chosen**:\n{justification.get('why_chosen', 'N/A')}")
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                alts = justification.get('alternatives_rejected', [])
+                if isinstance(alts, list):
+                    alts_str = "\n".join([f"- {a}" for a in alts])
+                else:
+                    alts_str = str(alts)
+                st.markdown(f"**Alternatives Analyzed & Rejected**:\n{alts_str}")
+            with jc2:
+                assumptions = justification.get('assumptions_made', [])
+                if isinstance(assumptions, list):
+                    assump_str = "\n".join([f"- {a}" for a in assumptions])
+                else:
+                    assump_str = str(assumptions)
+                st.markdown(f"**Assumptions Made**:\n{assump_str}")
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                constraints = justification.get('constraints_influenced', [])
+                if isinstance(constraints, list):
+                    const_str = "\n".join([f"- {a}" for a in constraints])
+                else:
+                    const_str = str(constraints)
+                st.markdown(f"**Influencing Constraints**:\n{const_str}")
+
         st.divider()
         
         # 3. Data Model Blueprint
         model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
         if model:
-            st.markdown("### 🧬 Data Model Blueprint")
+            st.markdown("### Data Model Blueprint")
             mc1, mc2 = st.columns(2)
             with mc1:
                 st.markdown(f"**Schema Type**: <span class='accent-text'>{model.get('schema_type', 'N/A')}</span>", unsafe_allow_html=True)
@@ -1322,7 +1352,7 @@ def main():
         if not isinstance(flow, dict): flow = {}
         
         if flow:
-            st.markdown("### 🔄 LIFECYCLE DATA FLOW")
+            st.markdown("### LIFECYCLE DATA FLOW")
             with st.container():
                 fc1, fc2, fc3 = st.columns(3)
                 with fc1:
@@ -1343,7 +1373,7 @@ def main():
         if not isinstance(gov_meta, dict): gov_meta = {}
         
         if gov_meta:
-            st.markdown("### 🔒 ARCHITECTURAL GOVERNANCE")
+            st.markdown("### ARCHITECTURAL GOVERNANCE")
             with st.container():
                 gc1, gc2 = st.columns(2)
                 with gc1:
@@ -1371,7 +1401,7 @@ def main():
         )
 
     with tabs[1]:
-        st.markdown("### 🏛️ Industrial Schema Design")
+        st.markdown("### Industrial Schema Design")
         st.markdown("""
             <div style="background: #F0F9FF; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
                 <span style="font-weight: 600; color: #0369A1;">Warehouse Detailed Model Only:</span> Fully detailed relational design derived from the Architecture tab. Explicitly defines all table structures, columns, data types, primary keys (PK), and foreign keys (FK) without high-level pipeline or source system layers.
@@ -1383,13 +1413,74 @@ def main():
         from dwh_assistant.backend.validator import synthesize_erd_from_tables
 
         all_tables = schema.get("tables", [])
+        if not isinstance(all_tables, list): all_tables = []
         rel_list = rel.get("rel", [])
+        if not isinstance(rel_list, list): rel_list = []
+
+        # Pull Data Model Blueprint metadata
+        model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
+        core_entities = model.get('core_entities') or model.get('fact_tables', []) or []
+        primary_relationships = model.get('primary_relationships') or model.get('relationships', []) or []
+
+        # Backfill entities from Data Model Blueprint
+        if core_entities:
+            existing_names = {t.get("name").upper() for t in all_tables if isinstance(t, dict) and t.get("name")}
+            for ent in core_entities:
+                if ent.upper() not in existing_names:
+                    # Guess a layer based on prefixes
+                    layer = "Gold" if any(p in ent.upper() for p in ["DIM_", "FACT_", "FCT_", "GOLD"]) else "Silver"
+                    all_tables.append({
+                        "name": ent,
+                        "layer": layer,
+                        "columns": [
+                            {"name": f"{ent.lower()}_sk", "type": "int", "pk": True, "description": "Surrogate primary key"},
+                            {"name": "created_at", "type": "timestamp", "description": "Record creation timestamp"}
+                        ]
+                    })
+
+        # Backfill relationships from Data Model Blueprint
+        if primary_relationships:
+            existing_rels = set()
+            for r in rel_list:
+                f = (r.get("from") or r.get("from_table") or "").upper()
+                t = (r.get("to") or r.get("to_table") or "").upper()
+                if f and t:
+                    existing_rels.add((f, t))
+                    existing_rels.add((t, f))
+            
+            for r_str in primary_relationships:
+                parts = re.split(r'\s*(?:->|joins|to|-|ref|references)\s*', r_str, flags=re.IGNORECASE)
+                if len(parts) >= 2:
+                    f_ent = parts[0].strip().upper()
+                    t_ent = parts[1].strip().upper()
+                    if (f_ent, t_ent) not in existing_rels:
+                        rel_list.append({
+                            "from": parts[0].strip(),
+                            "to": parts[1].strip(),
+                            "cardinality": "||--o{",
+                            "label": "references"
+                        })
+
         total_cols = sum(len(t.get("columns", [])) for t in all_tables if isinstance(t, dict))
         mc1, mc2, mc3 = st.columns(3)
         mc1.metric("Design Entities", len(all_tables), "Tables")
         mc2.metric("System Relationships", len(rel_list), "Foreign Keys")
         mc3.metric("Attribute Density", total_cols, "Columns")
         st.divider()
+
+        # Data Model Blueprint (Shared from Architecture)
+        model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
+        if model:
+            st.markdown("### Data Model Blueprint")
+            mc_b1, mc_b2 = st.columns(2)
+            with mc_b1:
+                st.markdown(f"**Schema Type**: <span style='color: #0284c7; font-weight: 600;'>{model.get('schema_type', 'N/A')}</span>", unsafe_allow_html=True)
+                entities = model.get('core_entities') or model.get('fact_tables', [])
+                st.markdown(f"**Core Entities**: {', '.join(entities if isinstance(entities, list) else [str(entities)])}")
+            with mc_b2:
+                rels = model.get('primary_relationships') or model.get('relationships', [])
+                st.markdown(f"**Key Relationships**: {', '.join(rels if isinstance(rels, list) else [str(rels)])}")
+            st.divider()
 
         # --- ERD code resolution: 3-tier fallback ---
         # Tier 1: AI-generated diagram stored in schema_modeling — use if non-trivial and covers most tables
@@ -1432,7 +1523,7 @@ def main():
             "Business Accuracy": lambda x: len(x.split("\n")) > 3
         }
         
-        schema_tabs = st.tabs(["📊 Entity Relationship Model", "📋 Schema Inventory"])
+        schema_tabs = st.tabs(["Entity Relationship Model", "Schema Inventory"])
         
         with schema_tabs[0]:
             # STRICT: Only use the warehouse schema ERD — rel.get("mermaid_diagram") can be a flowchart type and must NOT be used here
@@ -1448,7 +1539,7 @@ def main():
             # 3. Layer Inventory
 
         with schema_tabs[1]:
-            st.markdown("### 📋 Tabular Schema Inventory")
+            st.markdown("### Tabular Schema Inventory")
             # Strictly rely on runtime inference payload from the selected Cortex AI model
             unique_tables = all_tables
 
@@ -1470,8 +1561,8 @@ def main():
                             df_data.append({
                                 "Column": c.get("name"),
                                 "Type": c.get("type"),
-                                "PK": "🔑" if t_obj.get("primary_key") == c.get("name") or c.get("primary_key") else "",
-                                "FK": "🔗" if c.get("is_fk") or c.get("references") else "",
+                                "PK": "KEY" if t_obj.get("primary_key") == c.get("name") or c.get("primary_key") else "",
+                                "FK": "FK" if c.get("is_fk") or c.get("references") else "",
                                 "References": c.get("references") or "",
                                 "Description": c.get("description", "")
                             })
@@ -1495,7 +1586,9 @@ def main():
             tasks = pipeline.get("tasks", [])
             pc1, pc2, pc3 = st.columns(3)
             pc1.metric("Total Orchestration Tasks", len(tasks), "Workflows")
-            pc2.metric("Ingestion Frequency", "Streaming/Batch", "Medallion")
+            arch_state = st.session_state.get("architecture_strategy", {}) or st.session_state.get("architecture", {})
+            arch_display = arch_state.get("architecture_type", "Dynamic")
+            pc2.metric("Ingestion Frequency", "Streaming/Batch", arch_display)
             pc3.metric("Transformation Logic", len([t for t in tasks if t.get("type") == "transformation"]), "Steps")
             st.divider()
     
@@ -1582,7 +1675,7 @@ def main():
                 if rbac_data: st.vega_lite_chart(pd.DataFrame(rbac_data), {'mark': {'type': 'rect', 'stroke': '#fff'}, 'encoding': {'x': {'field': 'Role', 'type': 'nominal'}, 'y': {'field': 'Object', 'type': 'nominal'}, 'color': {'field': 'Privilege', 'type': 'nominal', 'scale': {'range': ['#002244', '#38BDF8', '#1E40AF']}}}, 'height': 400}, use_container_width=True)
                 
         with c2:
-            st.markdown("#### 🛡️ Masking Policies")
+            st.markdown("#### Masking Policies")
             policies = gov.get("masking_policies", [])
             for p in policies:
                 if isinstance(p, dict):
@@ -1658,7 +1751,7 @@ def main():
             c1, c2 = st.columns([2, 1])
             with c1:
                 # Sub-tabs for better organization
-                sub_tabs = st.tabs(["🚀 Full Script", "🏗️ Tables", "🔐 Grants", "🔄 Transformations"])
+                sub_tabs = st.tabs(["Full Script", "Tables", "Grants", "Transformations"])
                 
                 with sub_tabs[0]:
                     st.code(full_sql_script, language="sql", line_numbers=True)
@@ -1676,7 +1769,7 @@ def main():
                 d2.download_button("Technical Docs (.md)", doc_str, file_name="documentation.md", width='stretch')
             
             with c2:
-                st.markdown("#### 🛠️ Deployment Console")
+                st.markdown("#### Deployment Console")
                 
                 with st.container():
                     st.markdown("""
@@ -1686,7 +1779,7 @@ def main():
                         </div>
                     """, unsafe_allow_html=True)
                 
-                if st.button("💾 SAVE PROJECT SNAPSHOT", type="secondary", width='stretch'):
+                if st.button("SAVE PROJECT SNAPSHOT", type="secondary", width='stretch'):
                      from dwh_assistant.backend.snowflake import save_project_to_store, ensure_session
                      try:
                          ensure_session()
@@ -1708,16 +1801,21 @@ def main():
                              st.session_state.get("data_profile", {}),
                              outputs
                          )
-                         st.toast("✅ Design Saved Successfully!")
+                         st.toast("Design Saved Successfully!")
                      except Exception as e:
                          st.error(f"Save Failed: {e}")
     
                 st.divider()
                 st.markdown("##### Target Destination")
-                t_db = st.text_input("Database", value="ANALYTICS_PROD")
-                t_schema = st.text_input("Schema", value="MEDALLION")
                 
-                if st.button("🚀 EXECUTE FULL DEPLOYMENT", type="primary", width='stretch'):
+                # Fetch architecture dynamically from session state for schema naming
+                arch_for_schema = st.session_state.get("architecture_strategy", {}) or st.session_state.get("architecture", {})
+                default_schema = arch_for_schema.get("architecture_type", "ANALYTICS_SCHEMA").upper().replace(" ", "_")
+                
+                t_db = st.text_input("Database", value="ANALYTICS_PROD")
+                t_schema = st.text_input("Schema", value=default_schema)
+                
+                if st.button("EXECUTE FULL DEPLOYMENT", type="primary", width='stretch'):
                     from dwh_assistant.backend.executor import execute_deployment
                     with st.status("Deploying to Snowflake...", expanded=True) as status:
                         res = execute_deployment(st.session_state.snowflake_session, full_sql_script, t_db, t_schema, project_id=st.session_state.get("project_id", "N/A"))

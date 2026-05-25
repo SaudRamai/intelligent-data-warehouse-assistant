@@ -39,9 +39,9 @@ def main():
             tables = reqs.get("tables")
             
             if not session:
-                st.error("❌ Snowflake Session Lost. Please refresh or reconnect in the sidebar.")
+                st.error("Snowflake Session Lost. Please refresh or reconnect in the sidebar.")
             elif not tables:
-                st.error("⚠️ No tables selected for profiling. Please return to the Intake Form.")
+                st.error("No tables selected for profiling. Please return to the Intake Form.")
             else:
                 limit = reqs.get("profile_sample_size", 10)
                 profile_data = profile_sources(session, db, schema, tables, limit=limit)

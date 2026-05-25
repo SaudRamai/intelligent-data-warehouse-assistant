@@ -46,7 +46,7 @@ from dwh_assistant.utils.ui import apply_premium_style, render_ai_sidebar, init_
 from dwh_assistant.backend.snowflake import get_snowflake_session, check_connection, ensure_session, get_available_cortex_models
 
 # Page Config
-st.set_page_config(page_title="Industrial DWH Assistant", layout="wide", page_icon="🏗️")
+st.set_page_config(page_title="Industrial DWH Assistant", layout="wide", page_icon="DWH")
 init_session_state()
 apply_premium_style()
 

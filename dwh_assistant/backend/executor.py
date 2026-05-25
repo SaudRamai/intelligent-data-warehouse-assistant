@@ -233,7 +233,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                     unwrapped = unwrap_envelope(pfull)
                     if isinstance(unwrapped, (dict, list)): return unwrapped
                 except Exception: pass
-            print(f"      [⚠️ JSON DECODE ERROR] Pass 1: {e1} | Pass 2: {e2}\n      [CLEAN_RAW SNIPPET]: {repr(clean_full[:150])}")
+            print(f"      [JSON DECODE ERROR] Pass 1: {e1} | Pass 2: {e2}\n      [CLEAN_RAW SNIPPET]: {repr(clean_full[:150])}")
             
     return {"raw_unparsed": raw_text}
 
@@ -540,7 +540,7 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
     # If it failed but we have raw output, check if it's because of truncation
     raw = result.get("raw", "")
     if raw and _is_truncated(raw):
-        print(f"      [🔄 CONTINUATION] Detected truncated output, requesting continuation...", end="", flush=True)
+        print(f"      [CONTINUATION] Detected truncated output, requesting continuation...", end="", flush=True)
         import importlib, re, json
         import dwh_assistant.backend.prompts as prompts_mod
         try: importlib.reload(prompts_mod)
@@ -630,10 +630,10 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
             
             if isinstance(parsed, dict) and "raw_unparsed" not in parsed:
                 parsed = normalize_extracted_payload(parsed, task_type)
-                print(f" [✅ CONTINUATION SUCCESS]")
+                print(f" [CONTINUATION SUCCESS]")
                 return {"success": True, "output": parsed, "raw": json.dumps(parsed), "model": model}
             else:
-                print(f" [⚠️ CONTINUATION FAILED]")
+                print(f" [CONTINUATION FAILED]")
     
     return result
 
@@ -671,12 +671,12 @@ def profile_sources(_session: Session, db: str, schema: str, tables: List[str], 
                 col_name, col_type = row['name'], row['type']
                 unique_count = stats_row.get(col_name, 0)
                 flags = []
-                if any(id_key in col_name.lower() for id_key in ["id", "key"]): flags.append("🔑")
+                if any(id_key in col_name.lower() for id_key in ["id", "key"]): flags.append("KEY")
                 if any(pii in col_name.lower() for pii in ["email", "phone", "ssn", "dob", "name"]): flags.append("PII")
                 
                 columns.append({
                     "name": col_name, "type": col_type, "nullable": row['null?'] == 'Y',
-                    "cardinality": unique_count, "flags": flags, "is_pii": "PII" in flags, "is_key": "🔑" in flags
+                    "cardinality": unique_count, "flags": flags, "is_pii": "PII" in flags, "is_key": "KEY" in flags
                 })
             return {"name": table_name, "row_count": total_count, "columns": columns, "sample": sample_df.head(5).to_dict(orient="records")}
         except Exception as e:
@@ -705,7 +705,15 @@ def execute_deployment(session: Session, ddl_sql: str, target_db: str, target_sc
     import re
     # Convert hybrid tables to standard tables to prevent invalid foreign keys between hybrid and standard tables
     ddl_sql = re.sub(r'\bCREATE\s+HYBRID\s+TABLE\b', 'CREATE TABLE', ddl_sql, flags=re.IGNORECASE)
-    statements = [s.strip() for s in ddl_sql.split(";") if s.strip()]
+    
+    raw_statements = [s.strip() for s in ddl_sql.split(";") if s.strip()]
+    statements = []
+    for s in raw_statements:
+        # Check if the statement is empty or only contains comments
+        no_comments = re.sub(r'--.*?\n|--.*?$', '', s, flags=re.MULTILINE)
+        no_comments = re.sub(r'/\*.*?\*/', '', no_comments, flags=re.DOTALL)
+        if no_comments.strip():
+            statements.append(s)
     executed = []
     
     try:
@@ -717,6 +725,20 @@ def execute_deployment(session: Session, ddl_sql: str, target_db: str, target_sc
         session.use_database(target_db)
         session.sql(f"CREATE SCHEMA IF NOT EXISTS {target_schema}").collect()
         session.use_schema(target_schema)
+        
+        # Extract and create any referenced custom roles to prevent deployment failure
+        roles_to_create = set()
+        for stmt in statements:
+            matches = re.findall(r'\bROLE\s+([a-zA-Z0-9_]+)', stmt, re.IGNORECASE)
+            for m in matches:
+                if m.upper() not in ["ACCOUNTADMIN", "SECURITYADMIN", "USERADMIN", "SYSADMIN", "PUBLIC"]:
+                    roles_to_create.add(m.upper())
+        
+        for role in sorted(roles_to_create):
+            try:
+                session.sql(f"CREATE ROLE IF NOT EXISTS {role}").collect()
+            except Exception as role_e:
+                print(f"[WARNING] Failed to create role {role}: {role_e}")
         
         # Start Transaction
         session.sql("BEGIN").collect()

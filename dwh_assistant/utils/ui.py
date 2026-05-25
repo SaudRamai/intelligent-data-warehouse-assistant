@@ -103,7 +103,7 @@ def render_page_header(title: str, subtitle: str, highlight: str = ""):
 def render_ai_sidebar():
     """Renders the centralized AI Engine selector with connectivity validation."""
     with st.sidebar:
-        st.markdown("### 🤖 AI ENGINE")
+        st.markdown("### AI ENGINE")
         try:
             active_session = ensure_session()
             st.session_state["snowflake_connected"] = True

@@ -406,7 +406,7 @@ def call_cortex(
             # ═══════════════════════════════════════════════
             if _is_truncated(raw_output) and attempt < max_retries - 1:
                 print(f"[TRUNCATED] Response for {task_type} is incomplete. Attempting continuation...")
-                from dwh_assistant.backend.prompt_library import CONTINUATION_PROMPT
+                from dwh_assistant.backend.prompts import CONTINUATION_PROMPT
                 # Request the rest of the JSON
                 cont_prompt = f"{prompt}\n\n[PREVIOUS_RAW_OUTPUT]:\n{raw_output[-300:]}\n\n{CONTINUATION_PROMPT}"
                 
@@ -477,7 +477,7 @@ def call_cortex(
 # filled with placeholders if truncation occurs on the last attempt.
 # STRICT SCHEMA DEFINITION: All keys are mandatory to ensure UI stability.
 STEP_REQUIRED_KEYS = {
-    "architecture_strategy": ["architecture_type", "modeling_paradigm", "layers"],
+    "architecture_strategy": ["architecture_type", "modeling_paradigm", "layers", "architecture_justification"],
     "architecture_diagram":  ["mermaid_diagram"],
     "schema_inventory":     ["table_names"],
     "schema_atomic":        ["t_name", "cols"],
@@ -503,7 +503,7 @@ STEP_OPTIONAL_KEYS = {
 # Detailed Type-Safe Schema Definitions
 STEP_SCHEMA_SPECS = {
     "architecture_strategy": {
-        "architecture_type": str, "modeling_paradigm": str, "layers": list
+        "architecture_type": str, "modeling_paradigm": str, "layers": list, "architecture_justification": dict
     },
     "schema_atomic": {
         "t_name": str, "cols": list
@@ -569,12 +569,30 @@ def _step_is_complete(step_name: str, data: Any, is_last_attempt: bool = False) 
     return True
 
 
+def get_resolved_layers(current_results: Dict[str, Any]) -> List[str]:
+    arch_selection = current_results.get("architecture_selection") or current_results.get("architecture") or current_results.get("architecture_strategy") or {}
+    if not isinstance(arch_selection, dict):
+        arch_selection = {}
+    
+    if "layers" in arch_selection and arch_selection["layers"]:
+        return arch_selection["layers"]
+        
+    arch_type = str(arch_selection.get("architecture_type", "")).upper()
+    if "THREE_TIER" in arch_type or "THREE" in arch_type:
+        return ["Storage", "Processing", "Reporting"]
+    elif "MEDALLION" in arch_type or "BRONZE" in arch_type:
+        return ["Bronze", "Silver", "Gold"]
+    elif "CLOUD_DWH" in arch_type or "LAKEHOUSE" in arch_type or "ELT" in arch_type:
+        return ["Staging", "Conformed", "Enriched"]
+    else:
+        return ["Staging", "Processing", "Serving"]
+
 def run_all(session: Session, requirements: Dict[str, Any], data_profile: Dict[str, Any], model: str = "claude-3-7-sonnet", status_callback=None, initial_results: Dict[str, Any] = None) -> Dict[str, Any]:
     """
     Highly Optimized AI generation runner.
     Supports stateful resuming and sequential execution.
     """
-    from dwh_assistant.backend.prompt_library import build_prompt
+    from dwh_assistant.backend.prompts import build_prompt
     
     results = initial_results if initial_results else {}
     effective_models = set()
@@ -658,15 +676,20 @@ def run_all(session: Session, requirements: Dict[str, Any], data_profile: Dict[s
     def run_step_schema_atomic(current_results: Dict[str, Any], model: str = None) -> Dict[str, Any]:
         """Generates schema table-by-table in parallel for maximum precision and zero truncation."""
         inventory = current_results.get("schema_inventory", {}).get("table_names", [])
-        layers = current_results.get("architecture_selection", {}).get("layers", ["Bronze", "Silver", "Gold"])
+        layers = get_resolved_layers(current_results)
         
         all_designed_tables = []
         with ThreadPoolExecutor(max_workers=5) as executor:
             futures = {}
             for layer in layers:
                 layer_tables = [t for t in inventory if t.lower().startswith(layer[:3].lower()) or layer in t]
-                if not layer_tables and layer == "Gold":
+                paradigm = str(current_results.get("architecture_selection", {}).get("modeling_paradigm", "")).upper()
+                is_serving_layer = layer.lower() in ["gold", "curated", "enriched", "info_mart", "info_marts", "infomarts", "serving", "semantic", "dimensional", "consumption"]
+                is_vault_layer = any(x in layer.lower() for x in ["vault", "hub", "lnk", "sat", "raw_vault", "business_vault"])
+                if not layer_tables and is_serving_layer and ("STAR" in paradigm or "SNOWFLAKE" in paradigm or "GALAXY" in paradigm):
                     layer_tables = [t for t in inventory if t.lower().startswith(("fct_", "dim_", "fact_"))]
+                elif not layer_tables and is_vault_layer and "VAULT" in paradigm:
+                    layer_tables = [t for t in inventory if t.lower().startswith(("hub_", "lnk_", "sat_", "sat", "lnk", "hub"))]
                 
                 for table_name in layer_tables:
                     ctx = current_results.copy()
@@ -716,7 +739,7 @@ def run_all(session: Session, requirements: Dict[str, Any], data_profile: Dict[s
         }
 
     def run_step_pipeline_batched(current_results: Dict[str, Any], model: str = None) -> Dict[str, Any]:
-        layers = current_results.get("architecture_selection", {}).get("layers", ["Bronze", "Silver", "Gold"])
+        layers = get_resolved_layers(current_results)
         schema_results = current_results.get("schema_design", {})
         all_tables_metadata = schema_results.get("tables", [])
         
@@ -847,7 +870,7 @@ def run_all(session: Session, requirements: Dict[str, Any], data_profile: Dict[s
         }
 
     def run_step_doc_batched(current_results: Dict[str, Any], model: str = None) -> Dict[str, Any]:
-        layers = current_results.get("architecture_selection", {}).get("layers", ["Bronze", "Silver", "Gold"])
+        layers = get_resolved_layers(current_results)
         all_docs = []
         all_dict = []
         

@@ -167,8 +167,14 @@ def heal_mermaid_diagram(mermaid: str) -> str:
     
     # 1. Basic cleaning and header ensuring
     mermaid = mermaid.strip()
-    # Unescape JSON quotes
-    mermaid = mermaid.replace('\\"', '"')
+    # Only unescape JSON escape sequences if they are still present as raw literals
+    # (i.e. the string was NOT yet parsed through json.loads). Applying these
+    # replacements to an already-decoded string corrupts valid node labels.
+    if '\\n' in mermaid or '\\"' in mermaid or '\\\\' in mermaid:
+        mermaid = mermaid.replace('\\\\', '\x00__SLASH__\x00')  # protect real backslashes
+        mermaid = mermaid.replace('\\n', '\n')
+        mermaid = mermaid.replace('\\"', '"')
+        mermaid = mermaid.replace('\x00__SLASH__\x00', '\\')
     
     # ER Diagram Type Simplification (Visual Only)
     if "erDiagram" in mermaid.lower():
@@ -502,7 +508,170 @@ def clean_mermaid_erd(code: str) -> str:
     return "\n".join(res)
 
 
+def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[Dict]] = None) -> str:
+    """
+    Deterministically synthesises a complete erDiagram string from the merged schema
+    tables list and (optionally) a relationships list.
+
+    This is the authoritative fallback when the AI-generated mermaid_diagram is
+    absent, empty, or incomplete (e.g. produced from only one parallel batch).
+
+    Args:
+        tables: list of table dicts with keys: name, columns (list of col dicts
+                with keys: name, type, pk, fk, ref)
+        relationships: optional list of relationship dicts with keys:
+                       from_table / from, to_table / to, cardinality (optional)
+
+    Returns:
+        A valid erDiagram string covering every table and relationship.
+    """
+    if not tables:
+        return "erDiagram\n"
+
+    # --- helpers ---
+    _SAFE_ID = re.compile(r'[^A-Z0-9_]')
+
+    def _eid(raw: str) -> str:
+        """Normalise to uppercase alphanumeric+underscore identifier."""
+        return _SAFE_ID.sub('', re.sub(r'[\.\s\-]+', '_', str(raw).strip())).upper() or "ENTITY"
+
+    _TYPE_MAP = {
+        "varchar": "string", "text": "string", "nvarchar": "string", "char": "string",
+        "number": "number",  "numeric": "number", "decimal": "number", "float": "float",
+        "integer": "int",    "bigint": "int",     "smallint": "int",   "tinyint": "int",
+        "bool": "boolean",   "boolean": "boolean",
+        "date": "date",      "datetime": "timestamp",
+        "timestamp_ntz": "timestamp", "timestamp_ltz": "timestamp", "timestamp_tz": "timestamp",
+    }
+
+    def _norm_type(t: str) -> str:
+        key = str(t).lower().split("(")[0].strip()
+        return _TYPE_MAP.get(key, key[:20]) or "string"
+
+    lines = ["erDiagram"]
+    seen_rels: set = set()
+
+    for table in tables:
+        if not isinstance(table, dict):
+            continue
+        ent = _eid(table.get("name", ""))
+        if not ent or ent in ("ERDIAGRAM", "SELECT", "FROM", "WHERE"):
+            continue
+
+        cols = table.get("columns", [])
+        lines.append(f"    {ent} {{")
+        if not cols:
+            # Always emit at least a surrogate PK so the block is non-empty
+            lines.append(f"        int {ent.lower()}_sk PK")
+        else:
+            seen_col_names: set = set()
+            for col in cols:
+                if not isinstance(col, dict):
+                    continue
+                col_name = str(col.get("name", "")).strip()
+                if not col_name or col_name.lower() in seen_col_names:
+                    continue
+                seen_col_names.add(col_name.lower())
+                col_type = _norm_type(col.get("type", "string"))
+                markers = []
+                if col.get("pk") or col.get("primary_key") or col.get("is_pk"):
+                    markers.append("PK")
+                if col.get("fk") or col.get("is_fk"):
+                    markers.append("FK")
+                marker_str = (" " + " ".join(markers)) if markers else ""
+                lines.append(f"        {col_type} {col_name}{marker_str}")
+        lines.append("    }")
+
+        # Inline FK-based relationships derived from column refs
+        for col in (cols or []):
+            if not isinstance(col, dict):
+                continue
+            ref = col.get("ref") or col.get("references")
+            if ref and isinstance(ref, str) and "." in ref:
+                target_table = ref.split(".")[0]
+                tgt = _eid(target_table)
+                rel_key = (ent, tgt)
+                rev_key = (tgt, ent)
+                if rel_key not in seen_rels and rev_key not in seen_rels and tgt != ent:
+                    seen_rels.add(rel_key)
+                    lines.append(f"    {tgt} ||--o{{ {ent} : references")
+
+    # Explicit relationships list (from the relationship_design step)
+    if relationships:
+        for rel_item in relationships:
+            if not isinstance(rel_item, dict):
+                continue
+            src = _eid(rel_item.get("from_table") or rel_item.get("from") or "")
+            tgt = _eid(rel_item.get("to_table") or rel_item.get("to") or "")
+            if not src or not tgt or src == tgt:
+                continue
+            rel_key = (src, tgt)
+            rev_key = (tgt, src)
+            if rel_key in seen_rels or rev_key in seen_rels:
+                continue
+            seen_rels.add(rel_key)
+            cardinality = rel_item.get("cardinality", "||--o{")
+            label_raw = rel_item.get("label", rel_item.get("c", "relates"))
+            label = str(label_raw).replace('"', "").replace("'", "").replace(" ", "_") or "relates"
+            lines.append(f"    {src} {cardinality} {tgt} : {label}")
+
+    return "\n".join(lines)
+
+
+
+def detect_truncation(mermaid: str) -> bool:
+    """
+    Heuristically detects whether a Mermaid diagram was truncated mid-generation.
+    Returns True if the diagram appears incomplete (likely hit a token limit).
+    
+    Signals checked:
+      1. Unbalanced curly braces { } — most reliable indicator for erDiagram blocks
+      2. Diagram ends with a trailing comma, keyword, or open bracket
+      3. erDiagram has entity blocks opened but never closed
+    """
+    if not mermaid or not mermaid.strip():
+        return False
+    
+    text = mermaid.strip()
+    
+    # 1. Count unbalanced curly braces (entity blocks in erDiagram).
+    # Important: erDiagram relationship cardinality markers (e.g. ||--o{ or }|) contain
+    # literal { and } characters — strip relationship lines before counting so we
+    # only count actual entity-block delimiters.
+    lines_for_brace = [
+        l for l in text.splitlines()
+        if not re.search(r'[|o][|\-\.][|\-\.][|o{]', l)   # skip cardinality markers
+    ]
+    brace_text = '\n'.join(lines_for_brace)
+    open_braces  = brace_text.count('{')
+    close_braces = brace_text.count('}')
+    if open_braces > close_braces:
+        return True
+    
+    # 2. Check for dangling last line — truncation mid-token
+    last_line = text.splitlines()[-1].strip() if text.splitlines() else ''
+    dangling_patterns = [
+        r',$',                     # trailing comma
+        r':\s*$',                  # dangling colon (mid-relationship label)
+        r'--\s*$',                 # partial arrow
+        r'\|\s*$',                 # partial cardinality marker
+        r'\b(int|string|float|date|timestamp|boolean)\s*$',  # type with no column name
+    ]
+    for pat in dangling_patterns:
+        if re.search(pat, last_line, re.IGNORECASE):
+            return True
+    
+    # 3. Flowchart: open subgraph with no matching 'end'
+    subgraph_opens = len(re.findall(r'\bsubgraph\b', text, re.IGNORECASE))
+    subgraph_ends  = len(re.findall(r'^\s*end\s*$', text, re.IGNORECASE | re.MULTILINE))
+    if subgraph_opens > subgraph_ends:
+        return True
+    
+    return False
+
+
 def clean_mermaid_code(code: str, tab_route: Optional[str] = None) -> str:
+
     """
     Sanitizes Mermaid code by enforcing strict validation: only content that starts with valid 
     Mermaid keywords is sent to the engine. Any preceding plain text tab labels or UI headers 

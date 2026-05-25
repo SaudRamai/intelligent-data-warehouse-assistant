@@ -29,7 +29,13 @@ STRICT RULES:
 6. Separate pipeline design from schema design strictly
 7. Never mix architecture, schema, and UI logic
 8. CRITICAL MERMAID JSON RULE: Never use unescaped double quotes inside the mermaid_diagram string value. For node labels, use single quotes or raw text inside brackets (e.g. Node[Label] or Node['Label']). Never use double quotes inside node definitions. Ensure all newlines in the diagram string are properly escaped as \n.
-9. SNOWFLAKE TABLE TYPE RULE: Always generate standard tables (`CREATE TABLE`). Do NOT generate Hybrid Tables (`CREATE HYBRID TABLE`) or mix hybrid and standard tables, as Snowflake does not support cross-table-type foreign key constraints, which will cause deployment errors.
+9. MERMAID NODE LABEL SYNTAX (MANDATORY): For node labels with spaces or special characters, use ONLY:
+   CORRECT: node_id[Plain text label]         <- preferred, no quotes needed
+   CORRECT: node_id['Single quoted label']    <- acceptable with single quotes
+   WRONG:   node_id["Double quoted label"]    <- FATAL ERROR: breaks JSON string parsing
+   Examples: customer_dim[Customer Dimension]  OR  customer_dim['Customer Dimension']
+   NEVER:   customer_dim["Customer Dimension"]
+10. SNOWFLAKE TABLE TYPE RULE: Always generate standard tables (`CREATE TABLE`). Do NOT generate Hybrid Tables (`CREATE HYBRID TABLE`) or mix hybrid and standard tables, as Snowflake does not support cross-table-type foreign key constraints, which will cause deployment errors.
 
 ARCHITECTURE MODEL:
 Supported types:
@@ -638,6 +644,7 @@ GLOBAL FIX RULES (APPLY TO ALL STEPS)
 - Must NOT be truncated
 - Must include ALL layers explicitly
 - Absolutely NO unescaped double quotes inside diagram string values. Use single quotes or raw text for node labels.
+- NODE LABEL SYNTAX: CORRECT: node_id[Plain text] or node_id['Label']. WRONG: node_id["Label"] — this BREAKS JSON parsing. Never use double-quoted node labels.
 
 7. CONSISTENCY RULE (CROSS-STEPS)
 - Architecture → Schema → Pipeline must align

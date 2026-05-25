@@ -22,7 +22,7 @@ apply_premium_style()
 
 def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
     """Renders Mermaid.js code visually using a robust HTML/JS engine to guarantee graphic output."""
-    from dwh_assistant.backend.validator import clean_mermaid_code
+    from dwh_assistant.backend.validator import clean_mermaid_code, detect_truncation
     import streamlit.components.v1 as components
     import uuid
     import json
@@ -32,6 +32,16 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
         print("[DWH LOG] No code provided to render_mermaid.")
         return
     
+    # Detect truncation BEFORE healing so we capture the raw AI output signal
+    if detect_truncation(code):
+        st.warning(
+            "⚠️ **Diagram may be incomplete.** The AI response was likely cut off due to response "
+            "size limits. The diagram below shows what could be rendered. To get a full diagram, "
+            "try: reducing schema complexity, splitting into fewer tables, or regenerating.",
+            icon="⚠️"
+        )
+        print("[DWH LOG] Truncation detected in Mermaid output.")
+
     # Ensure pristine, valid syntax
     code = clean_mermaid_code(code)
     
@@ -106,7 +116,7 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
             width: 100%;
             height: 100%;
             position: relative;
-            overflow: hidden;
+            overflow: auto;
             box-sizing: border-box;
             cursor: grab;
         }
@@ -326,6 +336,8 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 startOnLoad: true,
                 theme: 'base',
                 securityLevel: 'loose',
+                maxTextSize: 9000000,
+                maxEdges: 100000,
                 themeVariables: {
                     fontFamily: 'Inter, -apple-system, sans-serif',
                     fontSize: '18px',
@@ -349,8 +361,8 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 flowchart: {
                     htmlLabels: true,
                     curve: 'basis',
-                    nodeSpacing: 100,
-                    rankSpacing: 100
+                    nodeSpacing: 50,
+                    rankSpacing: 50
                 }
             });
 
@@ -359,6 +371,8 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
             // Firing too early results in zero dimensions → wrong fitToScreen scale.
             let initAttempts = 0;
             const MAX_INIT_ATTEMPTS = 120; // up to 6 seconds at 50ms intervals
+            let lastVbW = -1;
+            let stableCount = 0;
             const checkTimer = setInterval(() => {
                 const svg = document.querySelector('.mermaid svg');
                 if (!svg) { if (++initAttempts >= MAX_INIT_ATTEMPTS) clearInterval(checkTimer); return; }
@@ -372,29 +386,47 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 const vbH = parseFloat(vbParts[3]);
                 if (!vbW || !vbH) { if (++initAttempts >= MAX_INIT_ATTEMPTS) clearInterval(checkTimer); return; }
 
-                // SVG is fully rendered with real layout — safe to style and fit
-                clearInterval(checkTimer);
-                applyPremiumStyling(svg);
-                initPanZoom(svg);
-            }, 50);
+                // Wait for layout stability (Dagre layout engine can adjust viewBox multiple times)
+                if (vbW === lastVbW) {
+                    stableCount++;
+                } else {
+                    stableCount = 0;
+                    lastVbW = vbW;
+                }
 
+                if (stableCount >= 2) {
+                    // SVG is fully rendered with stable real layout — safe to style and fit
+                    clearInterval(checkTimer);
+                    applyPremiumStyling(svg);
+                    initPanZoom(svg);
+                }
+            }, 50);
 
             function applyPremiumStyling(svg) {
                 try {
-                    // Set SVG width and height to match its viewBox values to prevent double-scaling
+                    // Set SVG width and height to match its viewBox values with a safety buffer
                     let svgWidth = 0;
                     let svgHeight = 0;
                     const viewBoxAttr = svg.getAttribute('viewBox');
                     if (viewBoxAttr) {
                         const parts = viewBoxAttr.trim().split(/[ ,]+/);
                         if (parts.length === 4) {
-                            svgWidth = parseFloat(parts[2]);
-                            svgHeight = parseFloat(parts[3]);
+                            let vx = parseFloat(parts[0]);
+                            let vy = parseFloat(parts[1]);
+                            let vw = parseFloat(parts[2]);
+                            let vh = parseFloat(parts[3]);
+                            
+                            // Add 40px safety padding to right and bottom for font rendering discrepancies
+                            vw += 40;
+                            vh += 40;
+                            svg.setAttribute('viewBox', `${vx} ${vy} ${vw} ${vh}`);
+                            svgWidth = vw;
+                            svgHeight = vh;
                         }
                     }
                     if (!svgWidth || !svgHeight) {
-                        svgWidth = parseFloat(svg.getAttribute('width')) || 0;
-                        svgHeight = parseFloat(svg.getAttribute('height')) || 0;
+                        svgWidth = (parseFloat(svg.getAttribute('width')) || 0) + 40;
+                        svgHeight = (parseFloat(svg.getAttribute('height')) || 0) + 40;
                     }
                     if (svgWidth && svgHeight) {
                         svg.style.setProperty('width', svgWidth + 'px', 'important');
@@ -490,9 +522,7 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                         labels.forEach(lbl => {
                             lbl.style.fill = `var(--${theme}-text)`;
                             lbl.style.color = `var(--${theme}-text)`;
-                            lbl.style.fontWeight = '700';
-                            lbl.style.textTransform = 'uppercase';
-                            lbl.style.letterSpacing = '0.05em';
+                            lbl.style.fontWeight = '600';
                         });
                     });
 
@@ -1347,20 +1377,50 @@ def main():
                 <span style="font-weight: 600; color: #0369A1;">Warehouse Detailed Model Only:</span> Fully detailed relational design derived from the Architecture tab. Explicitly defines all table structures, columns, data types, primary keys (PK), and foreign keys (FK) without high-level pipeline or source system layers.
             </div>
         """, unsafe_allow_html=True)
-        
 
         # Schema ERD: ONLY use schema_modeling mermaid_diagram — never doc_design which contains architecture-level diagrams
         # doc_design.mermaid_diagram is intentionally excluded here to avoid mixing pipeline architecture with the warehouse relational model
-        erd_code = schema.get("mermaid_diagram") or st.session_state.get("schema_modeling", {}).get("mermaid_diagram")
-        erd_key = "schema_design.mermaid_diagram"
-        mc1, mc2, mc3 = st.columns(3)
+        from dwh_assistant.backend.validator import synthesize_erd_from_tables
+
         all_tables = schema.get("tables", [])
         rel_list = rel.get("rel", [])
         total_cols = sum(len(t.get("columns", [])) for t in all_tables if isinstance(t, dict))
+        mc1, mc2, mc3 = st.columns(3)
         mc1.metric("Design Entities", len(all_tables), "Tables")
         mc2.metric("System Relationships", len(rel_list), "Foreign Keys")
         mc3.metric("Attribute Density", total_cols, "Columns")
         st.divider()
+
+        # --- ERD code resolution: 3-tier fallback ---
+        # Tier 1: AI-generated diagram stored in schema_modeling — use if non-trivial and covers most tables
+        ai_erd = schema.get("mermaid_diagram") or st.session_state.get("schema_modeling", {}).get("mermaid_diagram") or ""
+        ai_erd = ai_erd.strip()
+
+        def _erd_is_complete(erd_str: str, n_tables: int) -> bool:
+            """Returns True only if the stored diagram looks substantially complete."""
+            if not erd_str or len(erd_str) < 30:
+                return False
+            if "erdiagram" not in erd_str.lower():
+                return False
+            # Count entity blocks — each opens with a bare word followed by {
+            entity_blocks = len(re.findall(r'^\s{0,8}[A-Z_][A-Z0-9_]+\s*\{', erd_str, re.MULTILINE | re.IGNORECASE))
+            # Accept the AI diagram only if it covers at least 60 % of the tables
+            if n_tables > 0 and entity_blocks < max(1, int(n_tables * 0.6)):
+                return False
+            return True
+
+        if _erd_is_complete(ai_erd, len(all_tables)):
+            erd_code = ai_erd
+            print(f"[DWH LOG] Using AI-generated ERD ({len(erd_code)} chars, covers most tables)")
+        elif all_tables:
+            # Tier 2: Synthesise deterministically from merged tables + relationship list
+            print(f"[DWH LOG] AI ERD incomplete or absent — synthesising from {len(all_tables)} tables + {len(rel_list)} rels")
+            erd_code = synthesize_erd_from_tables(all_tables, rel_list)
+        else:
+            # Tier 3: Nothing available yet
+            erd_code = "erDiagram\n"
+
+        erd_key = "schema_design.mermaid_diagram"
 
         # 2. Main Visualization — schema ERD key already set above
         

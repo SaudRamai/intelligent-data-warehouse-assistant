@@ -80,15 +80,9 @@ def main():
                 st.sidebar.error("Snowflake: Connection Blocked")
                 st.error(f"Snowflake Authentication Error: {e}")
         
-        # provide a way to manual reset if failed
-        from dwh_assistant.backend.snowflake import LOCKOUT_FILE
-        if LOCKOUT_FILE.exists():
-            st.warning("GLOBAL LOCKOUT ACTIVE: To protect your account, all login attempts are suspended for 5 minutes.")
-            if st.button("I HAVE FIXED CREDENTIALS - RESET NOW"):
-                LOCKOUT_FILE.unlink(missing_ok=True)
-                st.rerun()
         
-        st.info("Check your credentials in `.streamlit/secrets.toml` or verify your Snowflake account status.")
+        if st.button("Retry Connection"):
+            st.rerun()
 
     # 3. Main Landing UI
     render_page_header("Industrial", "Autonomous AI Architect for Snowflake.", "DWH Assistant")

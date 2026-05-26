@@ -108,7 +108,7 @@ The application uses a **Premium Midnight Navy** design language.
     ```
 3.  **Launch**:
     ```bash
-    python -m streamlit run dwh_assistant/app.py
+    python -m streamlit run streamlit_app.py
     ```
 
 ---

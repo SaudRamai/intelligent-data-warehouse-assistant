@@ -12,8 +12,7 @@ if root_path not in sys.path:
 import pandas as pd
 import json
 import re
-from streamlit_flow import streamlit_flow
-from streamlit_flow.elements import StreamlitFlowNode, StreamlitFlowEdge
+
 from dwh_assistant.backend.executor import format_ddl
 from dwh_assistant.utils.ui import apply_premium_style, render_ai_sidebar, init_session_state, render_page_header
 st.set_page_config(page_title="Design Center | AI DWH", layout="wide")

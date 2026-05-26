@@ -178,30 +178,8 @@ def create_parallel_session() -> Optional[Session]:
     session, _ = _create_session_internal()
     return session
 
-def run_setup_script(session: Session) -> bool:
-    """
-    Reads and executes the setup.sql script to initialize the workspace.
-    """
-    try:
-        setup_path = Path(__file__).parent.parent / "setup.sql"
-        if not setup_path.exists():
-            print("setup.sql not found at", setup_path)
-            return False
-            
-        with open(setup_path, 'r') as f:
-            full_sql = f.read()
-            
-        # Split by semicolon and filter out empty statements
-        # Note: This is a simple parser, might need improvement for complex SQL
-        statements = [s.strip() for s in full_sql.split(';') if s.strip()]
-        
-        for stmt in statements:
-            session.sql(stmt).collect()
-            
-        return True
-    except Exception as e:
-        print(f"Failed to run setup script: {e}")
-        return False
+
+
 
 def ensure_session() -> Session:
     """
@@ -402,6 +380,7 @@ def save_project_to_store(session: Session, project_id: str, requirements: dict,
                        ?, ?, ?, PARSE_JSON(?), PARSE_JSON(?), 'generated'
             """, params=[
                 project_id,
+                # Removed stray setup script placeholder; actual implementation defined later.
                 safe_dumps(requirements),
                 safe_dumps(data_profile),
                 safe_dumps(arch),

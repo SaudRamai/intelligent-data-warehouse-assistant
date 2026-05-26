@@ -39,6 +39,12 @@ MODEL_TOKEN_CAPS = {
 # Global Lockout File Path (Relative to app root)
 LOCKOUT_FILE = Path(__file__).parent.parent / ".streamlit" / "snowflake_lockout.json"
 
+def safe_get_secret(key, default="unknown"):
+    try:
+        return st.secrets.get(key, default)
+    except Exception:
+        return default
+
 def _check_lockout():
     """Checks if the CURRENT account/user is in a global cooldown period."""
     if LOCKOUT_FILE.exists():
@@ -46,8 +52,8 @@ def _check_lockout():
             with open(LOCKOUT_FILE, 'r') as f:
                 lockout_data = json.load(f)
             
-            account = st.secrets.get("SNOWFLAKE_ACCOUNT", "unknown")
-            user = st.secrets.get("SNOWFLAKE_USER", "unknown")
+            account = safe_get_secret("SNOWFLAKE_ACCOUNT", "unknown")
+            user = safe_get_secret("SNOWFLAKE_USER", "unknown")
             key = f"{account}:{user}"
             
             data = lockout_data.get(key)
@@ -66,19 +72,28 @@ def _check_lockout():
                 # Cooldown expired for this key, clean up this entry
                 lockout_data.pop(key, None)
                 if lockout_data:
-                    with open(LOCKOUT_FILE, 'w') as f:
-                        json.dump(lockout_data, f)
+                    try:
+                        with open(LOCKOUT_FILE, 'w') as f:
+                            json.dump(lockout_data, f)
+                    except Exception:
+                        pass
                 else:
-                    LOCKOUT_FILE.unlink(missing_ok=True)
+                    try:
+                        LOCKOUT_FILE.unlink(missing_ok=True)
+                    except Exception:
+                        pass
         except Exception as e:
             if "wait" in str(e): raise e
             # If JSON is corrupt, just remove it
-            LOCKOUT_FILE.unlink(missing_ok=True)
+            try:
+                LOCKOUT_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 def _set_lockout(error_msg: str):
     """Sets the lockout timestamp for the current account/user."""
-    account = st.secrets.get("SNOWFLAKE_ACCOUNT", "unknown")
-    user = st.secrets.get("SNOWFLAKE_USER", "unknown")
+    account = safe_get_secret("SNOWFLAKE_ACCOUNT", "unknown")
+    user = safe_get_secret("SNOWFLAKE_USER", "unknown")
     key = f"{account}:{user}"
     
     lockout_data = {}
@@ -90,8 +105,11 @@ def _set_lockout(error_msg: str):
         
     lockout_data[key] = {"timestamp": time.time(), "error": str(error_msg)}
     
-    with open(LOCKOUT_FILE, 'w') as f:
-        json.dump(lockout_data, f)
+    try:
+        with open(LOCKOUT_FILE, 'w') as f:
+            json.dump(lockout_data, f)
+    except Exception:
+        pass
 
 def _clear_lockout():
     """Clears the lockout for the CURRENT account/user."""
@@ -100,26 +118,45 @@ def _clear_lockout():
             with open(LOCKOUT_FILE, 'r') as f:
                 lockout_data = json.load(f)
             
-            account = st.secrets.get("SNOWFLAKE_ACCOUNT", "unknown")
-            user = st.secrets.get("SNOWFLAKE_USER", "unknown")
+            account = safe_get_secret("SNOWFLAKE_ACCOUNT", "unknown")
+            user = safe_get_secret("SNOWFLAKE_USER", "unknown")
             key = f"{account}:{user}"
             
             if key in lockout_data:
                 lockout_data.pop(key)
                 if lockout_data:
-                    with open(LOCKOUT_FILE, 'w') as f:
-                        json.dump(lockout_data, f)
+                    try:
+                        with open(LOCKOUT_FILE, 'w') as f:
+                            json.dump(lockout_data, f)
+                    except Exception:
+                        pass
                 else:
-                    LOCKOUT_FILE.unlink(missing_ok=True)
+                    try:
+                        LOCKOUT_FILE.unlink(missing_ok=True)
+                    except Exception:
+                        pass
         except:
-            LOCKOUT_FILE.unlink(missing_ok=True)
+            try:
+                LOCKOUT_FILE.unlink(missing_ok=True)
+            except Exception:
+                pass
 
 def _create_session_internal() -> Tuple[Optional[Session], Optional[str]]:
     """The raw session creation logic."""
     _check_lockout()
     try:
+        # 1. Try to get active session if running in Streamlit in Snowflake (SiS)
+        try:
+            from snowflake.snowpark.context import get_active_session
+            session = get_active_session()
+            if session:
+                _clear_lockout()
+                return session, None
+        except Exception:
+            pass
+
+        # 2. Local fallback using secrets.toml or st.secrets
         import toml
-        # Try multiple potential paths for secrets.toml
         paths = [
             Path(__file__).parent.parent / ".streamlit" / "secrets.toml",
             Path.cwd() / ".streamlit" / "secrets.toml",
@@ -135,7 +172,16 @@ def _create_session_internal() -> Tuple[Optional[Session], Optional[str]]:
                 except: continue
         
         if not secrets:
-            secrets = st.secrets
+            # Safely access st.secrets
+            try:
+                # This will raise FileNotFoundError in SiS if no secrets file exists
+                _ = st.secrets
+                secrets = dict(st.secrets)
+            except Exception:
+                pass
+                
+        if not secrets:
+            return None, "No credentials found. If running in SiS, get_active_session() failed."
 
         connection_parameters = {
             "account": secrets.get("SNOWFLAKE_ACCOUNT"),

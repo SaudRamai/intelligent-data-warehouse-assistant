@@ -1297,7 +1297,7 @@ def main():
                     'color': {'condition': {'test': 'datum.Value > 70', 'value': '#38BDF8'}, 'value': '#475569'}
                 },
                 'height': 250, 'background': 'transparent'
-            }, width='stretch')
+            }, use_container_width=True)
 
         justification = blueprint.get("architecture_justification")
         if justification and isinstance(justification, dict):
@@ -1594,7 +1594,7 @@ def main():
                                         "References": c.get("references") or c.get("ref") or "",
                                         "Description": c.get("description", "")
                                     })
-                                st.dataframe(pd.DataFrame(df_data), width='stretch', hide_index=True)
+                                st.dataframe(pd.DataFrame(df_data), use_container_width=True, hide_index=True)
                             with mcol2:
                                 st.markdown("##### Entity Properties")
                                 st.info(f"**Layer**: {t_obj.get('layer', 'N/A')}")
@@ -1650,7 +1650,7 @@ def main():
                 task_df = pd.DataFrame(tasks)
                 if not task_df.empty:
                     available_cols = [c for c in ["name", "type", "layer", "frequency"] if c in task_df.columns]
-                    st.dataframe(task_df[available_cols], width='stretch', hide_index=True)
+                    st.dataframe(task_df[available_cols], use_container_width=True, hide_index=True)
         
 
     with tabs[3]:
@@ -1909,8 +1909,8 @@ def main():
     
                 st.divider()
                 d1, d2 = st.columns(2)
-                d1.download_button("Download Full Script (.sql)", full_sql_script, file_name="full_deployment_script.sql", width='stretch')
-                d2.download_button("Technical Docs (.md)", doc_str, file_name="documentation.md", width='stretch')
+                d1.download_button("Download Full Script (.sql)", full_sql_script, file_name="full_deployment_script.sql", use_container_width=True)
+                d2.download_button("Technical Docs (.md)", doc_str, file_name="documentation.md", use_container_width=True)
             
             with c2:
                 st.markdown("#### Deployment Console")
@@ -1923,7 +1923,7 @@ def main():
                         </div>
                     """, unsafe_allow_html=True)
                 
-                if st.button("SAVE PROJECT SNAPSHOT", type="secondary", width='stretch'):
+                if st.button("SAVE PROJECT SNAPSHOT", type="secondary", use_container_width=True):
                      from dwh_assistant.backend.snowflake import save_project_to_store, ensure_session
                      try:
                          ensure_session()
@@ -1954,7 +1954,7 @@ def main():
                 
                 t_db = st.text_input("Database", value="ANALYTICS_PROD")
                 
-                if st.button("EXECUTE FULL DEPLOYMENT", type="primary", width='stretch'):
+                if st.button("EXECUTE FULL DEPLOYMENT", type="primary", use_container_width=True):
                     from dwh_assistant.backend.executor import execute_deployment
                     with st.status("Deploying to Snowflake...", expanded=True) as status:
                         schema_context = st.session_state.get("schema_context")
@@ -1970,7 +1970,7 @@ def main():
                             st.success(f"Successfully executed {res['statements_run']} statements.")
                             if res.get("skipped_count", 0) > 0:
                                 st.warning(f"⚠️ Skipped {res['skipped_count']} non-blocking statements (e.g. references to objects or roles that do not exist).")
-                            st.dataframe(pd.DataFrame(res["results"]) if "results" in res else pd.DataFrame([{"status": "deployed"}]), width='stretch', hide_index=True)
+                            st.dataframe(pd.DataFrame(res["results"]) if "results" in res else pd.DataFrame([{"status": "deployed"}]), use_container_width=True, hide_index=True)
                         else:
                             status.update(label="Deployment Failed", state="error", expanded=True)
                             st.error(f"Error: {res['error']}")

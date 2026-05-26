@@ -90,7 +90,7 @@ def main():
         with vcol1:
             st.markdown("<p style='font-size: 0.9rem; color: #64748B; font-weight: 600; text-transform: uppercase;'>Source Entity Distribution</p>", unsafe_allow_html=True)
             stats_df = pd.DataFrame(table_stats)
-            st.bar_chart(stats_df.set_index("Table"), color="#002244", width='stretch')
+            st.bar_chart(stats_df.set_index("Table"), color="#002244", use_container_width=True)
             
         with vcol2:
             st.markdown("<p style='font-size: 0.9rem; color: #64748B; font-weight: 600; text-transform: uppercase;'>DataType Composition</p>", unsafe_allow_html=True)
@@ -102,7 +102,7 @@ def main():
                     'color': {'field': 'Type', 'type': 'nominal', 'scale': {'range': ['#002244', '#38BDF8', '#1E40AF', '#10B981', '#F59E0B']}}
                 },
                 'height': 200
-            }, width='stretch')
+            }, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
         # 2. Entity Discovery Section
@@ -152,14 +152,14 @@ def main():
                 
                 cols_df = cols_df[["name", "type", "nullable"]]
                 cols_df.columns = ["Field", "Type", "Null?"]
-                st.dataframe(cols_df, width='stretch', hide_index=True)
+                st.dataframe(cols_df, use_container_width=True, hide_index=True)
             else:
                 st.info("No columns defined for this entity.")
             
         with sc2:
             st.markdown("<p style='font-size: 0.8rem; color: #64748B; font-weight: 700;'>INTELLIGENT CONTENT SAMPLE</p>", unsafe_allow_html=True)
             if "sample" in table and table["sample"] and len(table["sample"]) > 0:
-                st.dataframe(pd.DataFrame(table["sample"]), width='stretch', hide_index=True)
+                st.dataframe(pd.DataFrame(table["sample"]), use_container_width=True, hide_index=True)
             else:
                 st.info("No content sample available for this entity.")
         
@@ -190,7 +190,7 @@ def main():
         # 3. Final Navigation
         st.markdown("<br><br>", unsafe_allow_html=True)
         fc1, fc2, fc3 = st.columns([1, 2, 1])
-        if fc2.button("INITIALIZE ARCHITECTURAL BLUEPRINT", type="primary", width='stretch'):
+        if fc2.button("INITIALIZE ARCHITECTURAL BLUEPRINT", type="primary", use_container_width=True):
             st.switch_page("pages/3_AI_Generation.py")
             
     else:

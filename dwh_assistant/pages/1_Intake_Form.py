@@ -101,7 +101,7 @@ def main():
         
         st.markdown("<br>", unsafe_allow_html=True)
         col1, col2 = st.columns([3, 1])
-        if col2.button("NEXT STEP", width='stretch'):
+        if col2.button("NEXT STEP", use_container_width=True):
             if industry and primary_goal:
                 st.session_state["form_buffer"].update({"industry": industry, "primary_goal": primary_goal, "kpis": kpis, "consumers": consumers})
                 st.session_state["current_section"] += 1
@@ -160,7 +160,7 @@ def main():
         if col1.button("← PREVIOUS"):
             st.session_state["current_section"] -= 1
             st.rerun()
-        if col2.button("NEXT: SLA", type="primary", width='stretch'):
+        if col2.button("NEXT: SLA", type="primary", use_container_width=True):
             if data_location == "My Snowflake Tables":
                 if not selected_db or not selected_schema or not selected_tables:
                     st.error("Please select a Database, Schema, and at least one Table.")
@@ -190,7 +190,7 @@ def main():
         if col1.button("← PREVIOUS"):
              st.session_state["current_section"] -= 1
              st.rerun()
-        if col2.button("NEXT: GOVERNANCE", type="primary", width='stretch'):
+        if col2.button("NEXT: GOVERNANCE", type="primary", use_container_width=True):
             st.session_state["form_buffer"].update({"refresh_frequency": refresh, "history_depth": history, "uptime_sla": sla, "latency_tolerance": latency})
             st.session_state["current_section"] += 1
             st.rerun()
@@ -218,7 +218,7 @@ def main():
         if col1.button("← PREVIOUS"):
              st.session_state["current_section"] -= 1
              st.rerun()
-        if col2.button("NEXT: STRATEGY", type="primary", width='stretch'):
+        if col2.button("NEXT: STRATEGY", type="primary", use_container_width=True):
             st.session_state["form_buffer"].update({"compliance": compliance, "row_level_security": rls, "column_masking": masking, "geo_restriction": geo})
             st.session_state["current_section"] += 1
             st.rerun()
@@ -243,7 +243,7 @@ def main():
         if col1.button("← PREVIOUS"):
              st.session_state["current_section"] -= 1
              st.rerun()
-        if col2.button("INITIALIZE ARCHITECT", type="primary", width='stretch'):
+        if col2.button("INITIALIZE ARCHITECT", type="primary", use_container_width=True):
             st.session_state["form_buffer"].update({
                 "priority": priority, 
                 "team_skill": skill, 

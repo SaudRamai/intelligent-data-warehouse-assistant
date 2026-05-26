@@ -131,9 +131,9 @@ def main():
     else:
         st.info(f"Active Project: `{st.session_state['project_id']}`")
         c1, c2 = st.columns(2)
-        if c1.button("Continue Current Design", width='stretch'):
+        if c1.button("Continue Current Design", use_container_width=True):
             st.switch_page("pages/4_Design_Center.py")
-        if c2.button("Start Fresh Project", width='stretch'):
+        if c2.button("Start Fresh Project", use_container_width=True):
             reset_project_state()
             st.switch_page("pages/1_Intake_Form.py")
     st.markdown('</div>', unsafe_allow_html=True)

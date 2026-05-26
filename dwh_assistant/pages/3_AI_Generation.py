@@ -78,7 +78,7 @@ def main():
         
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("PERMISSION CHECK", width='stretch'):
+            if st.button("PERMISSION CHECK", use_container_width=True):
                 with st.spinner("Checking..."):
                     res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
                     if res["success"]:
@@ -89,7 +89,7 @@ def main():
                         st.code(f"GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE {current_role};", language="sql")
         
         with c2:
-            if st.button("REGIONAL CHECK", width='stretch'):
+            if st.button("REGIONAL CHECK", use_container_width=True):
                 with st.spinner("Verifying..."):
                     res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
                     if res["success"]:
@@ -153,28 +153,28 @@ def main():
         cta_placeholder.success("Architecture Generation Complete!")
         
         c1, c2 = st.columns(2)
-        if c1.button("Generate Full Reset", width='stretch'):
+        if c1.button("Generate Full Reset", use_container_width=True):
             clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()
             
-        if c2.button("PROCEED TO DESIGN CENTER", type="primary", width='stretch'):
+        if c2.button("PROCEED TO DESIGN CENTER", type="primary", use_container_width=True):
             st.switch_page("pages/4_Design_Center.py")
             
     elif gen_res and not gen_res.get("success") and not is_running:
         st.error(f"Generation Failed: {gen_res.get('error')}")
         c1, c2 = st.columns(2)
-        if c1.button("RETRY FROM FAILED STEP", type="primary", width='stretch'):
+        if c1.button("RETRY FROM FAILED STEP", type="primary", use_container_width=True):
             # DO NOT clear state. orchestrator.run_all will skip 'Done' steps.
             st.session_state["generation_running"] = True
             st.rerun()
-        if c2.button("START OVER (RESET)", width='stretch'):
+        if c2.button("START OVER (RESET)", use_container_width=True):
             clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()
 
     elif not is_running:
-        if cta_placeholder.button("BEGIN ARCHITECTURAL GENERATION", type="primary", width='stretch'):
+        if cta_placeholder.button("BEGIN ARCHITECTURAL GENERATION", type="primary", use_container_width=True):
             clear_all_generation_caches(steps)
             st.session_state["generation_running"] = True
             st.rerun()

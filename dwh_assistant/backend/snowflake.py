@@ -280,7 +280,7 @@ def ensure_session() -> Session:
             
             # 6. AUTOMATED CORTEX PERMISSION & MODEL ENABLEMENT CHECK
             active_role = session.get_current_role()
-            role_from_secrets = st.secrets.get("SNOWFLAKE_ROLE", "").upper()
+            role_from_secrets = safe_get_secret("SNOWFLAKE_ROLE", "").upper()
             if "ACCOUNTADMIN" in role_from_secrets or (active_role and "ACCOUNTADMIN" in active_role.upper()):
                 try:
                     session.sql("ALTER ACCOUNT SET CORTEX_ENABLED_CROSS_REGION = 'ANY_REGION'").collect()

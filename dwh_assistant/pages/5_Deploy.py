@@ -82,9 +82,13 @@ def main():
         with st.status("Executing Deployment...", expanded=True) as status:
             ddl_gen = st.session_state.get("ddl_generation", {})
             if not isinstance(ddl_gen, dict): ddl_gen = {}
-            ddl = ddl_gen.get("ddl_sql", "")
+            from dwh_assistant.backend.executor import format_ddl
+            ddl = format_ddl(ddl_gen)
             project_id = st.session_state.get("project_id", "N/A")
-            result = execute_deployment(session, ddl, target_db, target_schema, project_id=project_id)
+            
+            # Pass the schema context to ensure dynamic schemas are pre-created
+            schema_context = st.session_state.get("schema_context")
+            result = execute_deployment(session, ddl, target_db, target_schema, project_id=project_id, schema_context=schema_context)
             
             if result["success"]:
                 st.session_state["deployed"] = True

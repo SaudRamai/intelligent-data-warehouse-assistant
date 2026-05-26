@@ -12,7 +12,66 @@ from dwh_assistant.backend.validator import clean_json_string, fix_truncated_jso
 from dwh_assistant.backend.snowflake import log_deployment, TWO_PARAM_ONLY_MODELS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-# --- 0. UTILITIES ---
+def unescape_json_string(s: str) -> str:
+    """Decodes a JSON string literal character-by-character, resilient to truncation."""
+    res = []
+    i = 0
+    n = len(s)
+    while i < n:
+        char = s[i]
+        if char == '\\':
+            if i + 1 < n:
+                next_char = s[i+1]
+                if next_char == '"':
+                    res.append('"')
+                    i += 2
+                elif next_char == '\\':
+                    res.append('\\')
+                    i += 2
+                elif next_char == '/':
+                    res.append('/')
+                    i += 2
+                elif next_char == 'b':
+                    res.append('\b')
+                    i += 2
+                elif next_char == 'f':
+                    res.append('\f')
+                    i += 2
+                elif next_char == 'n':
+                    res.append('\n')
+                    i += 2
+                elif next_char == 'r':
+                    res.append('\r')
+                    i += 2
+                elif next_char == 't':
+                    res.append('\t')
+                    i += 2
+                elif next_char == 'u':
+                    if i + 5 < n:
+                        hex_val = s[i+2:i+6]
+                        try:
+                            res.append(chr(int(hex_val, 16)))
+                            i += 6
+                        except ValueError:
+                            res.append('\\')
+                            res.append('u')
+                            i += 2
+                    else:
+                        res.append('\\')
+                        res.append('u')
+                        i += 2
+                else:
+                    res.append('\\')
+                    res.append(next_char)
+                    i += 2
+            else:
+                res.append('\\')
+                i += 1
+        else:
+            res.append(char)
+            i += 1
+    return "".join(res)
+
 
 def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
     """Robustly extracts, unboxes, and repairs JSON from LLM responses."""
@@ -90,7 +149,47 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             return {"ddl_sql": text.strip()}
 
     # 1a. Surgical unboxing of double-encoded stringified JSON payloads from Snowflake AI_COMPLETE
-    if isinstance(text, str) and '\\"' in text:
+    clean_start = text.strip()
+    is_envelope = clean_start.startswith('{') and (('"choices"' in clean_start[:150]) or ('"messages"' in clean_start[:150]))
+    
+    if is_envelope:
+        payload_str = None
+        for key in ['"messages": "', '"content": "', '"messages":  "', '"content":  "']:
+            idx = text.find(key)
+            if idx != -1 and idx < 400:
+                payload_str = text[idx + len(key):]
+                break
+        
+        if payload_str:
+            import re
+            # Repair stray backslashes escaping closing quotes followed by structural keys
+            keys_to_repair = [
+                "tables", "mermaid_diagram", "design_rationale", "rel", "tasks", "roles", "mask", 
+                "compliance_checklist", "lin", "tags", "architecture_type", "modeling_paradigm", 
+                "layers", "architecture_justification", "data_model_blueprint", "data_flow", 
+                "ddl_sql", "grant_sql", "transform_sql", "assumptions", "version", "generated_at", 
+                "summary", "documentation", "pipeline_rationale", "governance_rationale"
+            ]
+            for key in keys_to_repair:
+                pattern = r'\\{2,}"\s*,\s*(?:\\n|\\r|\s)*\\+"' + key + r'\\+"'
+                def repl(match):
+                    matched_str = match.group(0)
+                    quote_idx = matched_str.find('"')
+                    return '\\' + matched_str[quote_idx:]
+                payload_str = re.sub(pattern, repl, payload_str)
+                
+            unescaped = unescape_json_string(payload_str)
+            from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+            try:
+                cleaned = clean_json_string(unescaped)
+                repaired = fix_truncated_json(cleaned)
+                parsed = json.loads(repaired)
+                if isinstance(parsed, (dict, list)):
+                    return parsed
+            except Exception:
+                pass
+
+    if isinstance(text, str) and '\\"' in text and not is_envelope:
         try:
             stripped = text.strip()
             if stripped.startswith('"') and stripped.endswith('"'):
@@ -100,7 +199,24 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
         except Exception: pass
         
         if '\\"' in text or '\\n' in text:
-            unescaped = text.replace('\\\\"', '\\"').replace('\\"', '"').replace('\\n', '\n')
+            import re
+            repair_text = text
+            keys_to_repair = [
+                "tables", "mermaid_diagram", "design_rationale", "rel", "tasks", "roles", "mask", 
+                "compliance_checklist", "lin", "tags", "architecture_type", "modeling_paradigm", 
+                "layers", "architecture_justification", "data_model_blueprint", "data_flow", 
+                "ddl_sql", "grant_sql", "transform_sql", "assumptions", "version", "generated_at", 
+                "summary", "documentation", "pipeline_rationale", "governance_rationale"
+            ]
+            for key in keys_to_repair:
+                pattern = r'\\{2,}"\s*,\s*(?:\\n|\\r|\s)*\\+"' + key + r'\\+"'
+                def repl(match):
+                    matched_str = match.group(0)
+                    quote_idx = matched_str.find('"')
+                    return '\\' + matched_str[quote_idx:]
+                repair_text = re.sub(pattern, repl, repair_text)
+                
+            unescaped = unescape_json_string(repair_text)
             from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
             try:
                 cleaned = clean_json_string(unescaped)
@@ -696,68 +812,295 @@ def profile_sources(_session: Session, db: str, schema: str, tables: List[str], 
 
 # --- 3. PHYSICAL DEPLOYMENT ---
 
-def format_ddl(ddl_output: Dict[str, Any]) -> str:
-    """Combines various SQL artifacts into a single executable script."""
-    return f"-- DDL\n{ddl_output.get('ddl_sql','')}\n\n-- GRANTS\n{ddl_output.get('grant_sql','')}\n\n-- TRANSFORM\n{ddl_output.get('transform_sql','')}"
+# ═══════════════════════════════════════════════
+# METADATA-DRIVEN DDL UTILITIES
+# ═══════════════════════════════════════════════
 
-def execute_deployment(session: Session, ddl_sql: str, target_db: str, target_schema: str, project_id: str = "N/A") -> Dict[str, Any]:
-    """Executes SQL statements natively using Snowflake transactions for safety."""
+def layer_to_schema_name(layer_name: str) -> str:
+    """
+    Deterministically converts an AI-generated architecture layer name
+    into a valid Snowflake schema identifier. No hardcoded names.
+
+    Examples:
+        "Bronze"            → "BRONZE"
+        "Silver / Conformed" → "SILVER_CONFORMED"
+        "Raw Vault"         → "RAW_VAULT"
+        "Info Mart"         → "INFO_MART"
+        "Gold (Semantic)"   → "GOLD_SEMANTIC"
+    """
+    slug = re.sub(r'[^a-zA-Z0-9]', '_', layer_name.strip())
+    slug = re.sub(r'_+', '_', slug).strip('_').upper()
+    return slug if slug else 'WAREHOUSE_LAYER'
+
+
+def assemble_full_ddl(
+    schema_context: Dict[str, Any],
+    ai_ddl_parts: List[str],
+    ai_grant_parts: Optional[List[str]] = None,
+    ai_transform_parts: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """
+    Deterministically assembles the complete DDL deployment script from:
+    - schema_context: the metadata-driven layer → schema mapping (from build_schema_context)
+    - ai_ddl_parts:   raw CREATE TABLE SQL blocks returned by the AI (per batch)
+    - ai_grant_parts: raw GRANT SQL blocks from the AI
+    - ai_transform_parts: raw INSERT/MERGE SQL blocks from the AI
+
+    Assembly steps:
+    1. Generate CREATE SCHEMA IF NOT EXISTS for every layer in schema_context.
+    2. Merge AI DDL parts, enforce IF NOT EXISTS, strip HYBRID TABLE.
+    3. Deduplicate statements, preserving layer order (schemas first, DIM before FACT).
+    4. Combine grants and transforms.
+
+    Returns: {ddl_sql, grant_sql, transform_sql, schema_creation_sql}
+    """
+    if ai_grant_parts is None:
+        ai_grant_parts = []
+    if ai_transform_parts is None:
+        ai_transform_parts = []
+
+    layers = schema_context.get("layers", []) if isinstance(schema_context, dict) else []
+
+    # ── 1. Deterministic schema creation block ──────────────────────────────
+    schema_header_lines = ["-- ========================================================================="]
+    schema_header_lines.append("-- SCHEMA CREATION (Derived from AI Architecture Strategy)")
+    schema_header_lines.append("-- =========================================================================")
+    schema_names_ordered = []
+    for lm in layers:
+        schema_name = lm.get("schema_name") or layer_to_schema_name(lm.get("layer_name", "WAREHOUSE"))
+        schema_header_lines.append(f"CREATE SCHEMA IF NOT EXISTS {schema_name};")
+        schema_names_ordered.append(schema_name)
+
+    schema_creation_sql = "\n".join(schema_header_lines)
+
+    # ── 2. Merge & clean AI DDL blocks ──────────────────────────────────────
+    # Ensure each DDL part ends with a semicolon before joining them, to prevent merging DDL statements
+    ai_ddl_cleaned = []
+    for part in ai_ddl_parts:
+        if not part: continue
+        stripped = part.strip()
+        if not stripped.endswith(';'):
+            stripped += ';'
+        ai_ddl_cleaned.append(stripped)
+
+    raw_ddl_text = "\n\n".join(ai_ddl_cleaned)
+
+    # Enforce CREATE TABLE IF NOT EXISTS (never skip IF NOT EXISTS)
+    raw_ddl_text = re.sub(
+        r'\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)',
+        'CREATE TABLE IF NOT EXISTS ',
+        raw_ddl_text, flags=re.IGNORECASE
+    )
+    # Strip any HYBRID TABLE references (Snowflake rule: standard tables only)
+    raw_ddl_text = re.sub(r'\bCREATE\s+HYBRID\s+TABLE\b', 'CREATE TABLE', raw_ddl_text, flags=re.IGNORECASE)
+    # Strip any lingering SCHEMA creation statements in AI output (we emit ours deterministically)
+    raw_ddl_text = re.sub(r'CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+\S+\s*;?', '', raw_ddl_text, flags=re.IGNORECASE)
+
+    # ── 3. Split, deduplicate, and order statements ──────────────────────────
+    stmts_raw = [s.strip() for s in raw_ddl_text.split(";") if s.strip()]
+
+    # Remove pure-comment-only statements
+    def _has_sql(stmt: str) -> bool:
+        no_comments = re.sub(r'--.*?(\n|$)', '', stmt, flags=re.MULTILINE)
+        no_comments = re.sub(r'/\*.*?\*/', '', no_comments, flags=re.DOTALL)
+        return bool(no_comments.strip())
+
+    stmts_raw = [s for s in stmts_raw if _has_sql(s)]
+
+    # Deduplicate by normalised statement body
+    seen: Dict[str, str] = {}
+    for stmt in stmts_raw:
+        key = re.sub(r'\s+', ' ', stmt.upper()).strip()
+        if key not in seen:
+            seen[key] = stmt
+
+    unique_stmts = list(seen.values())
+
+    # Sort: DIM tables first (so FKs from FACT resolve), then FACT, then everything else
+    def _sort_key(s: str) -> tuple:
+        su = s.upper()
+        # Match both SCHEMA.DIM_TABLE and bare DIM_TABLE
+        if re.search(r'(?:^|[\s.(])DIM_', su):   return (0, s)
+        if re.search(r'(?:^|[\s.(])(HUB_|LNK_|SAT_)', su): return (1, s)
+        if re.search(r'(?:^|[\s.(])(RAW_|STG_|STAGE_|BRONZE)', su): return (2, s)
+        if re.search(r'(?:^|[\s.(])(SILVER|CONFORMED|CLEANED)', su): return (3, s)
+        if re.search(r'(?:^|[\s.(])(FACT_|FCT_)', su): return (4, s)
+        return (5, s)
+
+    unique_stmts.sort(key=_sort_key)
+
+    # ── 4. Final DDL: schema creation header + ordered table DDL ────────────
+    table_ddl_block = ";\n\n".join(unique_stmts)
+    if table_ddl_block:
+        table_ddl_block += ";"
+
+    full_ddl_sql = (
+        schema_creation_sql
+        + "\n\n-- =========================================================================\n"
+        + "-- TABLE DDL (Fully Qualified: schema_name.table_name)\n"
+        + "-- =========================================================================\n"
+        + (table_ddl_block or "-- No DDL statements generated by AI.")
+    )
+
+    # ── 5. Grants ───────────────────────────────────────────────────────────
+    grant_sql = "\n\n".join(filter(None, ai_grant_parts)) or "-- No GRANT statements generated."
+
+    # ── 6. Transforms ───────────────────────────────────────────────────────
+    transform_sql = "\n\n".join(filter(None, ai_transform_parts)) or "-- No transformation samples generated."
+
+    return {
+        "ddl_sql":            full_ddl_sql,
+        "grant_sql":          grant_sql,
+        "transform_sql":      transform_sql,
+        "schema_creation_sql": schema_creation_sql,
+    }
+
+
+def _sanitize_bind_vars(sql: str) -> str:
+    """Replace Snowflake bind variables like :batch_id with a dummy literal to avoid execution errors."""
+    return re.sub(r':\w+', '0', sql)
+
+
+def format_ddl(ddl_output: Dict[str, Any], include_transforms: bool = False) -> str:
+    """Combines various SQL artifacts into a single executable script, ensuring no stray quotes."""
+    # Retrieve blocks, default to empty strings
+    schema_block = ddl_output.get("schema_creation_sql", "") or ""
+    ddl_block    = ddl_output.get("ddl_sql", "") or ""
+    grant_block  = ddl_output.get("grant_sql", "") or ""
+    xform_block  = ddl_output.get("transform_sql", "") or ""
+    # Clean potential surrounding quotes
+    def clean_block(block: str) -> str:
+        blk = block.strip()
+        if blk.startswith('"') and blk.endswith('"'):
+            blk = blk[1:-1]
+        return blk
+    schema_block = clean_block(schema_block)
+    ddl_block = clean_block(ddl_block)
+    grant_block = clean_block(grant_block)
+    xform_block = clean_block(xform_block)
+    parts = []
+    if schema_block and schema_block not in ddl_block:
+        parts.append(f"-- SCHEMA CREATION\n{schema_block}")
+    if ddl_block:
+        parts.append(f"-- DDL\n{ddl_block}")
+    if grant_block:
+        parts.append(f"-- GRANTS\n{grant_block}")
+    if include_transforms and xform_block:
+        parts.append(f"-- TRANSFORMS\n{xform_block}")
+    return "\n\n".join(parts)
+
+
+def execute_deployment(
+    session: Session,
+    ddl_sql: str,
+    target_db: str,
+    target_schema: str = "PUBLIC",
+    project_id: str = "N/A",
+    schema_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    Executes SQL statements natively using Snowflake transactions for safety.
+
+    If `schema_context` is provided, all AI-derived schemas are pre-created
+    under `target_db` before executing the main DDL statements.
+    """
+    # Clean possible surrounding quotes from the entire DDL string
+    ddl_sql = ddl_sql.strip()
+    if ddl_sql.startswith('"') and ddl_sql.endswith('"'):
+        ddl_sql = ddl_sql[1:-1]
+
     import re
-    # Convert hybrid tables to standard tables to prevent invalid foreign keys between hybrid and standard tables
+    # Convert hybrid tables to standard tables to prevent invalid FK constraints
     ddl_sql = re.sub(r'\bCREATE\s+HYBRID\s+TABLE\b', 'CREATE TABLE', ddl_sql, flags=re.IGNORECASE)
-    
+
     raw_statements = [s.strip() for s in ddl_sql.split(";") if s.strip()]
     statements = []
     for s in raw_statements:
-        # Check if the statement is empty or only contains comments
-        no_comments = re.sub(r'--.*?\n|--.*?$', '', s, flags=re.MULTILINE)
+        no_comments = re.sub(r'--.*?(\n|$)', '', s, flags=re.MULTILINE)
         no_comments = re.sub(r'/\*.*?\*/', '', no_comments, flags=re.DOTALL)
         if no_comments.strip():
-            statements.append(s)
+            # Sanitize bind variables before execution
+            sanitized = _sanitize_bind_vars(s)
+            statements.append(sanitized)
     executed = []
-    
+
     try:
-        import re
         if not re.match(r'^[a-zA-Z0-9_]+$', target_db) or not re.match(r'^[a-zA-Z0-9_]+$', target_schema):
             raise ValueError("Database and Schema names must contain only alphanumeric characters and underscores.")
-            
+
         session.sql(f"CREATE DATABASE IF NOT EXISTS {target_db}").collect()
         session.use_database(target_db)
+
+        # ── Pre-create all AI-derived schemas (metadata-driven) ──────────────
+        if schema_context and isinstance(schema_context, dict):
+            for lm in schema_context.get("layers", []):
+                sname = lm.get("schema_name") or layer_to_schema_name(lm.get("layer_name", "WAREHOUSE"))
+                try:
+                    session.sql(f"CREATE SCHEMA IF NOT EXISTS {sname}").collect()
+                    print(f"[DEPLOY] Schema created: {target_db}.{sname}")
+                except Exception as se:
+                    print(f"[WARNING] Could not create schema {sname}: {se}")
+
+        # Always create the user-specified target schema as well
         session.sql(f"CREATE SCHEMA IF NOT EXISTS {target_schema}").collect()
         session.use_schema(target_schema)
-        
-        # Extract and create any referenced custom roles to prevent deployment failure
+
+        # Extract and pre-create any custom roles referenced in the DDL
         roles_to_create = set()
         for stmt in statements:
             matches = re.findall(r'\bROLE\s+([a-zA-Z0-9_]+)', stmt, re.IGNORECASE)
             for m in matches:
                 if m.upper() not in ["ACCOUNTADMIN", "SECURITYADMIN", "USERADMIN", "SYSADMIN", "PUBLIC"]:
                     roles_to_create.add(m.upper())
-        
+
         for role in sorted(roles_to_create):
             try:
                 session.sql(f"CREATE ROLE IF NOT EXISTS {role}").collect()
             except Exception as role_e:
                 print(f"[WARNING] Failed to create role {role}: {role_e}")
-        
-        # Start Transaction
-        session.sql("BEGIN").collect()
-        
+
+        statements = [_sanitize_bind_vars(s) for s in statements]
+        # Strip surrounding quotes and escaped characters that may be introduced by JSON extraction
+        cleaned_statements = []
         for stmt in statements:
-            session.sql(stmt).collect()
-            executed.append(stmt)
-            
-        # Commit Transaction
-        session.sql("COMMIT").collect()
+            cleaned = stmt.strip()
+            # Remove surrounding single or double quotes
+            cleaned = cleaned.strip('"\'')
+            # Unescape escaped double quotes
+            cleaned = cleaned.replace('\\"', '"')
+            # Unescape escaped single quotes
+            cleaned = cleaned.replace("\\'", "'")
+            # Remove any leading/trailing backticks or markdown fences
+            cleaned = re.sub(r'^```(?:sql|json)?\s*', '', cleaned, flags=re.IGNORECASE)
+            cleaned = re.sub(r'\s*```$', '', cleaned)
+            cleaned = cleaned.strip()
+            cleaned_statements.append(cleaned)
         
+        
+        session.sql("BEGIN").collect()
+        for stmt in cleaned_statements:
+            try:
+                session.sql(stmt).collect()
+                executed.append(stmt)
+            except Exception as stmt_e:
+                err_msg = str(stmt_e).lower()
+                if "does not exist" in err_msg or "doesn't exist" in err_msg or "not found" in err_msg:
+                    print(f"[WARNING] Skipping statement due to missing object: {stmt_e}")
+                    executed.append(f"-- SKIPPED (Object does not exist): {stmt}")
+                    skipped_count += 1
+                else:
+                    raise stmt_e
+        session.sql("COMMIT").collect()
+
         log_deployment(session, project_id, target_db, target_schema, len(statements), "success")
-        return {"success": True, "statements_run": len(statements)}
+        return {"success": True, "statements_run": len(statements), "skipped_count": skipped_count}
+
     except Exception as e:
         try:
             session.sql("ROLLBACK").collect()
             rollback_msg = "Transaction rolled back automatically."
         except Exception as rb_e:
             rollback_msg = f"Rollback failed: {rb_e}"
-            
+
         log_deployment(session, project_id, target_db, target_schema, len(executed), "failed", {"error": str(e)})
         return {"success": False, "error": str(e), "rollback": [rollback_msg]}

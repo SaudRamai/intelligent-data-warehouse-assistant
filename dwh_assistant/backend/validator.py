@@ -1,6 +1,7 @@
 import json
 import re
 from typing import Dict, Any, List, Optional
+from collections import defaultdict
 
 def clean_json_string(s: str) -> str:
     """Surgically repairs common JSON malformations and extracts JSON from noise."""
@@ -203,13 +204,18 @@ def heal_mermaid_diagram(mermaid: str) -> str:
     return mermaid
 
 def clean_mermaid_flowchart(code: str) -> str:
-    """Sanitizer for flowchart/graph diagrams."""
+    """Sanitizer for flowchart/graph diagrams.
+    
+    Preserves node labels inline on edge lines to avoid blank-node rendering.
+    Collects standalone node label definitions in a first pass, then emits
+    edges with full labels, and defers classDef/class/style lines to the end.
+    """
     if not code: return ""
     lines = code.split("\n")
     cleaned = []
     seen_edges = set()
-    
-    # 1. Isolate the header and start cleaning from the very first line of code
+
+    # 1. Isolate the header
     header_found = False
     start_line = 0
     for i, line in enumerate(lines):
@@ -217,7 +223,6 @@ def clean_mermaid_flowchart(code: str) -> str:
         if match:
             header = match.group(0).strip()
             cleaned.append(header)
-            
             remaining = line[match.end():].strip()
             if remaining:
                 lines[i] = remaining
@@ -226,138 +231,239 @@ def clean_mermaid_flowchart(code: str) -> str:
                 start_line = i + 1
             header_found = True
             break
-    
+
     if not header_found:
-        cleaned.append("flowchart LR") # Default fallback
+        cleaned.append("flowchart LR")
         start_line = 0
 
-    # Helper to clean node IDs safely: replace dots/spaces with underscores, ensure complete words
     def sanitize_id(nid: str) -> str:
         s = nid.strip()
-        # Replace dots, unquoted spaces, and trailing symbols with underscore
         s = re.sub(r'[\.\s\-]+', '_', s)
         s = re.sub(r'[^a-zA-Z0-9_]', '', s)
         s = re.sub(r'_+', '_', s).strip('_')
-        # Heal truncated common words
         low = s.lower()
         if low == "silve": s = "SILVER" if s.isupper() else "Silver"
         elif low == "bronz": s = "BRONZE" if s.isupper() else "Bronze"
         elif low == "strat": s = "STRATEGY" if s.isupper() else "Strategy"
         return s or "node"
 
+    def _close_bracket(inner: str) -> str:
+        """Ensure bracket content is properly closed."""
+        pairs = [("[[", "]]"), ("{{", "}}"), ("([", "])"), ("[(", ")]"), ("((", "))"),
+                 ("[", "]"), ("(", ")"), ("{", "}")]
+        for op, cl in pairs:
+            if inner.startswith(op) and not inner.endswith(cl):
+                return inner + cl
+        return inner
+
+    def _format_node(n_id: str, bracket_content: str) -> str:
+        """Build a clean  id["Label"]  node string."""
+        inner = _close_bracket(bracket_content.strip())
+        label = re.sub(r'^[\[\(\{]+|[\]\)\}]+$', '', inner).strip().strip('"').strip("'")
+        sp = inner[:2] if inner[:2] in ["[[", "{{", "([", "[(", "(("] else inner[:1]
+        ss = inner[-2:] if inner[-2:] in ["]]", "}}", "])", ")]", "))"] else inner[-1:]
+        return f'{n_id}{sp}"{label}"{ss}'
+
+    # 2. First pass: collect standalone node label definitions
+    node_labels: dict = {}
     for line in lines[start_line:]:
         l = line.strip()
-        if not l or l == "end": 
-            if l: cleaned.append(l)
+        if not l or l.startswith("%%"):
+            continue
+        if any(arrow in l for arrow in ["-->", "---", "-.-", "==>"]):  # skip edge lines
+            continue
+        if any(l.lower().startswith(x) for x in ["subgraph", "end", "classdef", "class ", "style ", "direction", "flowchart", "graph"]):
+            continue
+        br = re.search(r'([\[\(\{].*)', l)
+        if br:
+            nid = sanitize_id(re.split(r'[\[\(\{]', l, 1)[0])
+            if nid:
+                node_labels[nid] = _format_node(nid, br.group(1))
+
+    emitted_nodes: set = set()
+    style_lines = []
+
+    # 3. Main pass
+    for line in lines[start_line:]:
+        l = line.strip()
+        if not l:
             continue
             
-        # Strip trailing trailing noise/dots
-        l = re.sub(r'\.\s*$', '', l)
-        
-        # Subgraph preservation
-        subgraph_match = re.search(r'subgraph\s+([^"\[\(\s\n]+)?\s*(?:["\[\(]([^"\]\)]+?)["\]\)])?', l, re.IGNORECASE)
-        if subgraph_match and not l.strip().startswith(("end", "flowchart", "graph")):
-            s_id, s_label = subgraph_match.groups()
-            title = s_label or s_id or "layer"
-            title = title.strip().rstrip('.')
-            
-            safe_id = sanitize_id(s_id or title)
-            cleaned.append(f"    subgraph {safe_id} [\"{title}\"]")
+        if l == "end" or l.startswith("%%"):
+            cleaned.append(f"    {l}")
             continue
 
-        # Edge Sanitization (A --> B)
-        # Improved regex to handle labels and node definitions attached to edges safely
-        if any(arrow in l for arrow in ["-->", "---", "-.-", "==>"]):
-            # Split by the arrow to isolate source and target blocks cleanly
-            arrow_match = re.search(r'(\-\-\>|\-\-\-|\-\.\-|\=\=\>)', l)
-            if arrow_match:
-                arrow = arrow_match.group(1)
-                parts = l.split(arrow, 1)
-                src_part = parts[0].strip()
-                tgt_part = parts[1].strip()
-                
-                # Extract bare node ID from src_part (before any bracket)
-                src_id_match = re.split(r'[\[\(\{]', src_part, 1)
-                src_id = sanitize_id(src_id_match[0])
-                
-                # Extract bare node ID from tgt_part
-                tgt_id_match = re.split(r'[\[\(\{]', tgt_part, 1)
-                tgt_id = sanitize_id(tgt_id_match[0])
-                
+        l = re.sub(r'\.\s*$', '', l)
+
+        # Defer style/class lines
+        if any(l.lower().startswith(x) for x in ["classdef", "class ", "style "]):
+            style_lines.append(f"    {l}")
+            continue
+
+        # Subgraph
+        sg = re.search(r'subgraph\s+([^"\[\(\s\n]+)?\s*(?:["\[\(]([^"\]\)]+?)["\]\)])?', l, re.IGNORECASE)
+        if sg and not l.startswith(("end", "flowchart", "graph")):
+            s_id, s_label = sg.groups()
+            title = (s_label or s_id or "layer").strip().rstrip('.')
+            cleaned.append(f"    subgraph {sanitize_id(s_id or title)} [\"{title}\"]")
+            continue
+
+        # Edge lines
+        if any(arrow in l for arrow in ["-->", "---", "-.-", "==>"]):  # noqa
+            am = re.search(r'(\-\-\>|\-\-\-|\-\.\-|\=\=\>)', l)
+            if am:
+                arrow = am.group(1)
+                p0, p1 = l.split(arrow, 1)
+                src_part = p0.strip()
+                tgt_part = p1.strip()
+
+                src_split = re.split(r'[\[\(\{]', src_part, 1)
+                src_id = sanitize_id(src_split[0])
+
+                tgt_split = re.split(r'[\[\(\{]', tgt_part, 1)
+                tgt_id = sanitize_id(tgt_split[0])
+
                 if src_id and tgt_id and src_id != tgt_id:
                     edge_key = (src_id, tgt_id, arrow)
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
-                        cleaned.append(f"    {src_id} {arrow} {tgt_id}")
-                
-                # Also preserve node definitions if present in src_part or tgt_part
-                for part in [src_part, tgt_part]:
-                    br_match = re.search(r'([\[\(\{].*)', part)
-                    if br_match:
-                        n_id = sanitize_id(re.split(r'[\[\(\{]', part, 1)[0])
-                        inner = br_match.group(1).strip()
-                        # Ensure closed brackets
-                        if inner.startswith("[[") and not inner.endswith("]]"): inner += "]]"
-                        elif inner.startswith("{{") and not inner.endswith("}}"): inner += "}}"
-                        elif inner.startswith("([") and not inner.endswith("])"): inner += "])"
-                        elif inner.startswith("[(") and not inner.endswith(")]"): inner += ")]"
-                        elif inner.startswith("((") and not inner.endswith("))"): inner += "))"
-                        elif inner.startswith("[") and not inner.endswith("]"): inner += "]"
-                        elif inner.startswith("(") and not inner.endswith(")"): inner += ")"
-                        elif inner.startswith("{") and not inner.endswith("}"): inner += "}"
-                        
-                        # Ensure inner label is quoted if it contains spaces
-                        label_content = re.sub(r'^[\[\(\{]+|[\]\)\}]+$', '', inner).strip()
-                        label_content = label_content.strip('"').strip("'")
-                        shape_prefix = inner[:2] if inner.startswith(("[[", "{{", "([", "[(", "((")) else inner[:1]
-                        shape_suffix = inner[-2:] if inner.endswith(("]]", "}}", "])", ")]", "))")) else inner[-1:]
-                        cleaned.append(f"    {n_id}{shape_prefix}\"{label_content}\"{shape_suffix}")
+
+                        # Build node strings with labels
+                        if len(src_split) > 1:
+                            src_str = _format_node(src_id, "[" + src_split[1])
+                            node_labels[src_id] = src_str
+                            emitted_nodes.add(src_id)
+                        elif src_id in node_labels:
+                            src_str = node_labels[src_id]
+                            emitted_nodes.add(src_id)
+                        else:
+                            src_str = src_id
+
+                        if len(tgt_split) > 1:
+                            tgt_str = _format_node(tgt_id, "[" + tgt_split[1])
+                            node_labels[tgt_id] = tgt_str
+                            emitted_nodes.add(tgt_id)
+                        elif tgt_id in node_labels:
+                            tgt_str = node_labels[tgt_id]
+                            emitted_nodes.add(tgt_id)
+                        else:
+                            tgt_str = tgt_id
+
+                        cleaned.append(f"    {src_str} {arrow} {tgt_str}")
             continue
 
-        # Bare node definitions or standalone nodes with labels
-        # e.g. NodeID["Label"] or NodeID
+        # Standalone node definitions (only emit if not already emitted via an edge)
         if not any(l.lower().startswith(x) for x in ["classdef", "class", "style", "direction"]):
-            br_match = re.search(r'([\[\(\{].*)', l)
-            if br_match:
+            br = re.search(r'([\[\(\{].*)', l)
+            if br:
                 n_id = sanitize_id(re.split(r'[\[\(\{]', l, 1)[0])
-                inner = br_match.group(1).strip()
-                if inner.startswith("[[") and not inner.endswith("]]"): inner += "]]"
-                elif inner.startswith("{{") and not inner.endswith("}}"): inner += "}}"
-                elif inner.startswith("([") and not inner.endswith("])"): inner += "])"
-                elif inner.startswith("[(") and not inner.endswith(")]"): inner += ")]"
-                elif inner.startswith("((") and not inner.endswith("))"): inner += "))"
-                elif inner.startswith("[") and not inner.endswith("]"): inner += "]"
-                elif inner.startswith("(") and not inner.endswith(")"): inner += ")"
-                elif inner.startswith("{") and not inner.endswith("}"): inner += "}"
-                
-                label_content = re.sub(r'^[\[\(\{]+|[\]\)\}]+$', '', inner).strip()
-                label_content = label_content.strip('"').strip("'")
-                shape_prefix = inner[:2] if inner.startswith(("[[", "{{", "([", "[(", "((")) else inner[:1]
-                shape_suffix = inner[-2:] if inner.endswith(("]]", "}}", "])", ")]", "))")) else inner[-1:]
-                cleaned.append(f"    {n_id}{shape_prefix}\"{label_content}\"{shape_suffix}")
+                if n_id and n_id not in emitted_nodes:
+                    cleaned.append(f"    {_format_node(n_id, br.group(1))}")
+                    emitted_nodes.add(n_id)
             else:
-                # Standalone bare node without brackets
                 n_id = sanitize_id(l)
-                if n_id and n_id not in ["flowchart", "graph"]:
+                if n_id and n_id not in ["flowchart", "graph"] and n_id not in emitted_nodes:
                     cleaned.append(f"    {n_id}")
+                    emitted_nodes.add(n_id)
         else:
-            cleaned.append(f"    {l}")
-            
+            style_lines.append(f"    {l}")
+
+    if style_lines:
+        cleaned.extend(style_lines)
+
     return "\n".join(cleaned)
+
+# --- Mermaid ERD Syntax & Formatting Helpers ---
+
+_SAFE_ID = re.compile(r'[^A-Z0-9_]')
+
+def _eid(raw: str) -> str:
+    """Normalises to uppercase alphanumeric+underscore identifier, collapsing multiple underscores."""
+    if not raw:
+        return "ENTITY"
+    # Replace spaces, dots, hyphens with underscore
+    s = re.sub(r'[\.\s\-]+', '_', str(raw).strip()).upper()
+    # Retain only alphanumeric and underscore
+    s = _SAFE_ID.sub('', s)
+    # Collapse multiple underscores and strip leading/trailing
+    s = re.sub(r'_+', '_', s).strip('_')
+    # Reject artificial/invalid entity names that are completely empty or too short
+    return s if s else "ENTITY"
+
+_TYPE_MAP = {
+    "varchar": "string", "text": "string", "nvarchar": "string", "char": "string", "string": "string",
+    "charactervarying": "string",
+    "number": "number",  "numeric": "number", "decimal": "number", "float": "float", "double": "float",
+    "doubleprecision": "float",
+    "int": "int", "integer": "int", "bigint": "int", "smallint": "int", "tinyint": "int",
+    "bool": "boolean", "boolean": "boolean",
+    "date": "date", "datetime": "timestamp", "timestamp": "timestamp",
+    "timestamp_ntz": "timestamp", "timestamp_ltz": "timestamp", "timestamp_tz": "timestamp",
+    "timestampwithouttimezone": "timestamp", "timestampwithtimezone": "timestamp",
+    "variant": "string", "object": "string", "array": "string", "json": "string"
+}
+
+def normalize_attribute_type(t: str, col_name: str = "") -> str:
+    """Maps database-specific type to standard clean types supported by Mermaid."""
+    # Split by parenthesis to ignore lengths or precision scale, e.g. VARCHAR(50) or NUMBER(38,0)
+    cleaned = str(t).lower().split("(")[0].strip()
+    cleaned = re.sub(r'[^a-z0-9_]', '', cleaned)
+    
+    mapped = _TYPE_MAP.get(cleaned, cleaned[:20]) or "string"
+    
+    # Refine "number" to int or float based on semantic naming of the column
+    if mapped == "number":
+        c_low = str(col_name).lower()
+        if any(x in c_low for x in ["price", "amount", "rate", "discount", "freight", "tax", "cost", "value", "amt"]):
+            return "float"
+        return "int"
+        
+    return mapped
+
+def layer_sort_key(layer_name: str) -> int:
+    """Logically orders layers for medallion and similar architectures."""
+    l = str(layer_name).lower()
+    if "bronze" in l or "raw" in l or "landing" in l:
+        return 0
+    if "staging" in l or "silver" in l or "clean" in l or "conform" in l:
+        return 1
+    if "ods" in l or "operational" in l:
+        return 2
+    if "gold" in l or "curated" in l or "mart" in l or "fact" in l or "dim" in l:
+        return 3
+    return 4
+
+def get_layer_for_table(name: str, table_to_layer: Optional[Dict[str, str]] = None) -> str:
+    """Identifies/infers the logical layer of a table name using heuristics or metadata."""
+    normalized_name = _eid(name)
+    if table_to_layer and normalized_name in table_to_layer:
+        return table_to_layer[normalized_name]
+        
+    # Fallback to heuristics
+    if any(x in normalized_name for x in ["BRONZE", "RAW", "LANDING", "SRC_"]):
+        return "Bronze"
+    if any(x in normalized_name for x in ["SILVER", "STAGING", "STG_", "CLEAN", "CONFORMED"]):
+        return "Silver"
+    if "ODS" in normalized_name:
+        return "ODS"
+    if any(x in normalized_name for x in ["GOLD", "FACT_", "DIM_", "FCT_", "MART", "PRES_"]):
+        return "Gold"
+    return "Warehouse"
 
 def clean_mermaid_erd(code: str) -> str:
     """
     Industrial-grade sanitizer and reconstructor for erDiagrams.
     Performs strict deduplication by merging entity attributes across repeated blocks,
     removes duplicate table definitions, extracts or infers valid relationships,
-    and guarantees a structurally perfect Mermaid ER diagram.
+    resolves syntax errors (like spaces/brackets/invalid types), and reconstructs
+    the diagram layer-by-layer separated into distinct comment-labeled sections.
     """
     if not code: return "erDiagram\n"
     
     lines = code.split("\n")
     entities: Dict[str, List[str]] = {}
     seen_attrs: Dict[str, set] = {}
-    relationships: List[str] = []
+    relationships: List[Dict[str, str]] = []
     seen_rels = set()
     
     current_entity = None
@@ -367,7 +473,7 @@ def clean_mermaid_erd(code: str) -> str:
     
     for line in lines:
         l = line.strip()
-        if not l or l.lower().startswith("erdiagram"): continue
+        if not l or l.lower().startswith("erdiagram") or l.startswith("%%"): continue
         
         # Check if line contains a relationship
         edge_match = re.search(rel_regex, l)
@@ -376,29 +482,33 @@ def clean_mermaid_erd(code: str) -> str:
             simple_match = re.search(r'^([a-zA-Z0-9_\.\s\-]+)\s+(?:-->|--+|->)\s+([a-zA-Z0-9_\.\s\-]+)', l)
             
         if edge_match or simple_match:
-            # If we were inside a table block but a relationship line appears, don't treat relationship as an attribute
             if edge_match:
                 src, rel_type, tgt, label = edge_match.groups()
             else:
                 src, tgt = simple_match.groups()
-                rel_type, label = "||--o{", "relates"
+                rel_type, label = "||--o{", "references"
                 
-            src = re.sub(r'[^A-Z0-9_]', '', re.sub(r'[\.\s\-]+', '_', src.strip())).upper()
-            tgt = re.sub(r'[^A-Z0-9_]', '', re.sub(r'[\.\s\-]+', '_', tgt.strip())).upper()
+            src_eid = _eid(src)
+            tgt_eid = _eid(tgt)
             
-            if src and tgt and src != tgt:
-                rel_key = (src, tgt)
-                if rel_key not in seen_rels and (tgt, src) not in seen_rels:
+            if src_eid and tgt_eid and src_eid != tgt_eid:
+                rel_key = (src_eid, tgt_eid)
+                if rel_key not in seen_rels and (tgt_eid, src_eid) not in seen_rels:
                     seen_rels.add(rel_key)
-                    clean_label = str(label or "relates").strip().replace(' ', '_').replace('"', '').replace("'", "")
-                    relationships.append(f"    {src} {rel_type} {tgt} : {clean_label}")
+                    clean_label = str(label or "references").strip().replace(' ', '_').replace('"', '').replace("'", "")
+                    relationships.append({
+                        "from": src_eid,
+                        "to": tgt_eid,
+                        "rel_type": rel_type,
+                        "label": clean_label
+                    })
                     # Ensure both entities exist in registry
-                    if src not in entities: 
-                        entities[src] = []
-                        seen_attrs[src] = set()
-                    if tgt not in entities: 
-                        entities[tgt] = []
-                        seen_attrs[tgt] = set()
+                    if src_eid not in entities: 
+                        entities[src_eid] = []
+                        seen_attrs[src_eid] = set()
+                    if tgt_eid not in entities: 
+                        entities[tgt_eid] = []
+                        seen_attrs[tgt_eid] = set()
             continue
 
         # Check for start of entity block
@@ -406,11 +516,7 @@ def clean_mermaid_erd(code: str) -> str:
             match = re.search(r'^([a-zA-Z0-9_\.\s\-]+)\s*\{', l)
             if match:
                 ent_raw = match.group(1).strip()
-                ent = re.sub(r'[\.\s\-]+', '_', ent_raw).upper()
-                ent = re.sub(r'[^A-Z0-9_]', '', ent)
-                if ent == "SILVE": ent = "SILVER"
-                elif ent == "BRONZ": ent = "BRONZE"
-                
+                ent = _eid(ent_raw)
                 if ent:
                     current_entity = ent
                     if current_entity not in entities:
@@ -419,13 +525,16 @@ def clean_mermaid_erd(code: str) -> str:
                 # Check if there are attributes inline after {
                 inline_attr = l.split("{", 1)[1].strip().rstrip("}")
                 if inline_attr:
-                    parts = inline_attr.split()
+                    parts = [p.strip() for p in inline_attr.split() if p.strip()]
                     if len(parts) >= 2:
-                        col_type, col_name = parts[0], parts[1]
+                        col_type = normalize_attribute_type(parts[0], parts[1])
+                        col_name = re.sub(r'[^a-zA-Z0-9_]', '', parts[1])
                         col_key = col_name.lower()
                         if col_key not in seen_attrs.get(current_entity, set()):
                             seen_attrs[current_entity].add(col_key)
                             marker = parts[2] if len(parts) > 2 else ""
+                            marker = re.sub(r'[^A-Z0-9_]', '', marker).upper()
+                            if marker not in ["PK", "FK"]: marker = ""
                             entities[current_entity].append(f"        {col_type} {col_name} {marker}".strip())
             continue
             
@@ -436,58 +545,90 @@ def clean_mermaid_erd(code: str) -> str:
             
         # If we are inside an entity block, parse attributes
         if current_entity:
-            # Clean attribute line
-            parts = [re.sub(r'[^a-zA-Z0-9_]', '', p) for p in l.split() if p.strip()]
-            if len(parts) >= 2:
-                col_type, col_name = parts[0], parts[1]
+            raw_parts = [p.strip() for p in l.split() if p.strip()]
+            if len(raw_parts) >= 2:
+                col_type = normalize_attribute_type(raw_parts[0], raw_parts[1])
+                col_name = re.sub(r'[^a-zA-Z0-9_]', '', raw_parts[1])
                 col_key = col_name.lower()
                 if col_key not in seen_attrs.get(current_entity, set()):
                     seen_attrs[current_entity].add(col_key)
-                    marker = parts[2] if len(parts) > 2 else ""
-                    # Ensure standard warehouse scalar types visually
-                    if "timestamp" in col_type.lower(): col_type = "timestamp"
-                    elif "number" in col_type.lower(): col_type = "number"
+                    marker = raw_parts[2] if len(raw_parts) > 2 else ""
+                    marker = re.sub(r'[^A-Z0-9_]', '', marker).upper()
+                    if marker not in ["PK", "FK"]: marker = ""
                     entities[current_entity].append(f"        {col_type} {col_name} {marker}".strip())
-            elif len(parts) == 1:
-                # Omitted type or name fallback
-                col_name = parts[0]
+            elif len(raw_parts) == 1:
+                col_name = re.sub(r'[^a-zA-Z0-9_]', '', raw_parts[0])
                 col_key = col_name.lower()
                 if col_key not in seen_attrs.get(current_entity, set()):
                     seen_attrs[current_entity].add(col_key)
                     col_type = "string" if not col_name.endswith(("_sk", "_id")) else "int"
                     marker = "PK" if col_name.endswith("_sk") else ""
                     entities[current_entity].append(f"        {col_type} {col_name} {marker}".strip())
-            continue
-            
-    # Assembly Phase
-    res = ["erDiagram"]
+
+    # Build diagram sections layer-by-layer
+    layer_groups = defaultdict(list)
+    for ent in entities.keys():
+        layer_groups[get_layer_for_table(ent)].append(ent)
+
+    # Sort layers
+    sorted_layers = sorted(layer_groups.keys(), key=layer_sort_key)
     
-    # 1. Output strict, deduplicated, fully populated entities
-    for ent, attrs in sorted(entities.items()):
-        if not ent or ent in ["ERDIAGRAM", "SELECT", "FROM", "WHERE", "END"]: continue
-        res.append(f"    {ent} {{")
-        # If an entity has no attributes, supply at least a primary surrogate key to prevent empty block issues
-        if not attrs:
-            res.append(f"        int {ent.lower()}_sk PK")
-        else:
-            for attr in attrs:
-                res.append(attr)
-        res.append("    }")
+    # Filter out Bronze / Raw / Landing layers if other warehouse layers exist
+    warehouse_layers = [l for l in sorted_layers if l.lower() not in ["bronze", "raw", "landing", "ingest"]]
+    target_layers = warehouse_layers if warehouse_layers else sorted_layers
+    
+    final_sections = []
+    rendered_tables = set()
+    for layer in target_layers:
+        rendered_tables.update(layer_groups[layer])
+    
+    # 1. Output strict, deduplicated, fully populated entities layer by layer
+    for layer in target_layers:
+        layer_ents = layer_groups[layer]
+        layer_lines = []
+        layer_lines.append(f"\n  %% ─── {layer.upper()} LAYER ───")
+        for ent in sorted(layer_ents):
+            if ent in ["ERDIAGRAM", "SELECT", "FROM", "WHERE", "END"]: continue
+            layer_lines.append(f"  {ent} {{")
+            attrs = entities[ent]
+            if not attrs:
+                layer_lines.append(f"    int {ent.lower()}_sk PK")
+            else:
+                for attr in attrs:
+                    layer_lines.append(f"    {attr.strip()}")
+            layer_lines.append("  }")
+            
+        # Group intra-layer relationships inside the layer section
+        layer_table_names = set(layer_ents)
+        intra_rels = []
+        for r in relationships:
+            if r["from"] in layer_table_names and r["to"] in layer_table_names:
+                intra_rels.append(f"  {r['from']} {r['rel_type']} {r['to']} : {r['label']}")
         
-    # 2. Output relationships
-    # If no relationships were found but we have multiple entities, try to infer FK/PK links based on surrogate key naming conventions
+        if intra_rels:
+            layer_lines.extend(intra_rels)
+            
+        final_sections.append("\n".join(layer_lines))
+
+    # 2. Output cross-layer relationships
+    cross_layer_rels = []
+    for r in relationships:
+        from_layer = get_layer_for_table(r["from"])
+        to_layer = get_layer_for_table(r["to"])
+        if from_layer != to_layer:
+            if r["from"] in rendered_tables and r["to"] in rendered_tables:
+                cross_layer_rels.append(f"  {r['from']} {r['rel_type']} {r['to']} : {r['label']}")
+
+    # If no explicit relationships exist, infer them
     if not relationships and len(entities) > 1:
         ent_names = set(entities.keys())
         for ent, attrs in entities.items():
             for attr in attrs:
-                # Look for foreign keys ending in _sk
                 parts = attr.split()
                 if len(parts) >= 2:
                     col_name = parts[1].lower()
                     if col_name.endswith("_sk") and col_name != f"{ent.lower()}_sk":
-                        # Target entity candidate
                         target_cand = col_name[:-3].upper()
-                        # Find best match in defined entities
                         best_target = None
                         if target_cand in ent_names:
                             best_target = target_cand
@@ -500,10 +641,16 @@ def clean_mermaid_erd(code: str) -> str:
                             rel_key = (best_target, ent)
                             if rel_key not in seen_rels:
                                 seen_rels.add(rel_key)
-                                relationships.append(f"    {best_target} ||--o{{ {ent} : references")
-                                
-    for rel in relationships:
-        res.append(rel)
+                                cross_layer_rels.append(f"  {best_target} ||--o{{ {ent} : references")
+
+    # Assembly Phase
+    res = ["erDiagram"]
+    for section in final_sections:
+        res.append(section)
+        
+    if cross_layer_rels:
+        res.append("\n  %% ─── CROSS-LAYER RELATIONSHIPS ───")
+        res.extend(cross_layer_rels)
         
     return "\n".join(res)
 
@@ -513,109 +660,157 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
     Deterministically synthesises a complete erDiagram string from the merged schema
     tables list and (optionally) a relationships list.
 
-    This is the authoritative fallback when the AI-generated mermaid_diagram is
-    absent, empty, or incomplete (e.g. produced from only one parallel batch).
-
-    Args:
-        tables: list of table dicts with keys: name, columns (list of col dicts
-                with keys: name, type, pk, fk, ref)
-        relationships: optional list of relationship dicts with keys:
-                       from_table / from, to_table / to, cardinality (optional)
-
-    Returns:
-        A valid erDiagram string covering every table and relationship.
+    Generates the diagram layer by layer in distinct structured sections.
     """
     if not tables:
         return "erDiagram\n"
 
-    # --- helpers ---
-    _SAFE_ID = re.compile(r'[^A-Z0-9_]')
+    # Map tables to their layers
+    table_to_layer = {}
+    for table in tables:
+        if isinstance(table, dict) and table.get("name"):
+            table_to_layer[_eid(table["name"])] = table.get("layer", "Warehouse")
 
-    def _eid(raw: str) -> str:
-        """Normalise to uppercase alphanumeric+underscore identifier."""
-        return _SAFE_ID.sub('', re.sub(r'[\.\s\-]+', '_', str(raw).strip())).upper() or "ENTITY"
-
-    _TYPE_MAP = {
-        "varchar": "string", "text": "string", "nvarchar": "string", "char": "string",
-        "number": "number",  "numeric": "number", "decimal": "number", "float": "float",
-        "integer": "int",    "bigint": "int",     "smallint": "int",   "tinyint": "int",
-        "bool": "boolean",   "boolean": "boolean",
-        "date": "date",      "datetime": "timestamp",
-        "timestamp_ntz": "timestamp", "timestamp_ltz": "timestamp", "timestamp_tz": "timestamp",
-    }
-
-    def _norm_type(t: str) -> str:
-        key = str(t).lower().split("(")[0].strip()
-        return _TYPE_MAP.get(key, key[:20]) or "string"
-
-    lines = ["erDiagram"]
-    seen_rels: set = set()
-
+    # Group tables by layer
+    layer_groups = defaultdict(list)
     for table in tables:
         if not isinstance(table, dict):
             continue
-        ent = _eid(table.get("name", ""))
-        if not ent or ent in ("ERDIAGRAM", "SELECT", "FROM", "WHERE"):
+        layer = table.get("layer", "Warehouse")
+        layer_groups[layer].append(table)
+
+    # Gather all relationships first
+    all_rels = []
+    seen_rels = set()
+
+    # 1. From column refs
+    for table in tables:
+        if not isinstance(table, dict):
             continue
-
+        src_name = table.get("name", "")
+        src_eid = _eid(src_name)
         cols = table.get("columns", [])
-        lines.append(f"    {ent} {{")
-        if not cols:
-            # Always emit at least a surrogate PK so the block is non-empty
-            lines.append(f"        int {ent.lower()}_sk PK")
-        else:
-            seen_col_names: set = set()
-            for col in cols:
-                if not isinstance(col, dict):
-                    continue
-                col_name = str(col.get("name", "")).strip()
-                if not col_name or col_name.lower() in seen_col_names:
-                    continue
-                seen_col_names.add(col_name.lower())
-                col_type = _norm_type(col.get("type", "string"))
-                markers = []
-                if col.get("pk") or col.get("primary_key") or col.get("is_pk"):
-                    markers.append("PK")
-                if col.get("fk") or col.get("is_fk"):
-                    markers.append("FK")
-                marker_str = (" " + " ".join(markers)) if markers else ""
-                lines.append(f"        {col_type} {col_name}{marker_str}")
-        lines.append("    }")
-
-        # Inline FK-based relationships derived from column refs
         for col in (cols or []):
             if not isinstance(col, dict):
                 continue
             ref = col.get("ref") or col.get("references")
             if ref and isinstance(ref, str) and "." in ref:
                 target_table = ref.split(".")[0]
-                tgt = _eid(target_table)
-                rel_key = (ent, tgt)
-                rev_key = (tgt, ent)
-                if rel_key not in seen_rels and rev_key not in seen_rels and tgt != ent:
-                    seen_rels.add(rel_key)
-                    lines.append(f"    {tgt} ||--o{{ {ent} : references")
+                tgt_eid = _eid(target_table)
+                if src_eid and tgt_eid and src_eid != tgt_eid:
+                    rel_key = (src_eid, tgt_eid)
+                    rev_key = (tgt_eid, src_eid)
+                    if rel_key not in seen_rels and rev_key not in seen_rels:
+                        seen_rels.add(rel_key)
+                        all_rels.append({
+                            "from": tgt_eid,
+                            "to": src_eid,
+                            "cardinality": "||--o{",
+                            "label": "references"
+                        })
 
-    # Explicit relationships list (from the relationship_design step)
+    # 2. From explicit relationships
     if relationships:
         for rel_item in relationships:
             if not isinstance(rel_item, dict):
                 continue
-            src = _eid(rel_item.get("from_table") or rel_item.get("from") or "")
-            tgt = _eid(rel_item.get("to_table") or rel_item.get("to") or "")
-            if not src or not tgt or src == tgt:
+            src_eid = _eid(rel_item.get("from_table") or rel_item.get("from") or "")
+            tgt_eid = _eid(rel_item.get("to_table") or rel_item.get("to") or "")
+            if not src_eid or not tgt_eid or src_eid == tgt_eid:
                 continue
-            rel_key = (src, tgt)
-            rev_key = (tgt, src)
-            if rel_key in seen_rels or rev_key in seen_rels:
-                continue
-            seen_rels.add(rel_key)
-            cardinality = rel_item.get("cardinality", "||--o{")
-            label_raw = rel_item.get("label", rel_item.get("c", "relates"))
-            label = str(label_raw).replace('"', "").replace("'", "").replace(" ", "_") or "relates"
-            lines.append(f"    {src} {cardinality} {tgt} : {label}")
+            rel_key = (src_eid, tgt_eid)
+            rev_key = (tgt_eid, src_eid)
+            if rel_key not in seen_rels and rev_key not in seen_rels:
+                seen_rels.add(rel_key)
+                cardinality = rel_item.get("cardinality", "||--o{")
+                label_raw = rel_item.get("label", rel_item.get("c", "relates"))
+                label = str(label_raw).replace('"', "").replace("'", "").replace(" ", "_") or "relates"
+                all_rels.append({
+                    "from": src_eid,
+                    "to": tgt_eid,
+                    "cardinality": cardinality,
+                    "label": label
+                })
 
-    return "\n".join(lines)
+    # Build layers incrementally
+    final_sections = []
+    cross_layer_rels = []
+
+    # Sort layers
+    sorted_layers = sorted(layer_groups.keys(), key=layer_sort_key)
+    
+    # Filter out Bronze / Raw / Landing layers if other warehouse layers exist
+    warehouse_layers = [l for l in sorted_layers if l.lower() not in ["bronze", "raw", "landing", "ingest"]]
+    target_layers = warehouse_layers if warehouse_layers else sorted_layers
+
+    rendered_tables = set()
+    for layer in target_layers:
+        for table in layer_groups[layer]:
+            rendered_tables.add(_eid(table.get("name", "")))
+
+    for layer in target_layers:
+        layer_tables = layer_groups[layer]
+        layer_lines = []
+        layer_lines.append(f"\n  %% ─── {layer.upper()} LAYER ───")
+        
+        # Add tables in this layer
+        for table in layer_tables:
+            ent = _eid(table.get("name", ""))
+            if not ent or ent in ("ERDIAGRAM", "SELECT", "FROM", "WHERE"):
+                continue
+            cols = table.get("columns", [])
+            layer_lines.append(f"  {ent} {{")
+            if not cols:
+                layer_lines.append(f"    int {ent.lower()}_sk PK")
+            else:
+                seen_col_names = set()
+                for col in cols:
+                    if not isinstance(col, dict):
+                        continue
+                    col_name = str(col.get("name", "")).strip()
+                    if not col_name or col_name.lower() in seen_col_names:
+                        continue
+                    seen_col_names.add(col_name.lower())
+                    col_type = normalize_attribute_type(col.get("type", "string"), col_name)
+                    markers = []
+                    if col.get("pk") or col.get("primary_key") or col.get("is_pk"):
+                        markers.append("PK")
+                    if col.get("fk") or col.get("is_fk"):
+                        markers.append("FK")
+                    marker_str = (" " + " ".join(markers)) if markers else ""
+                    layer_lines.append(f"    {col_type} {col_name}{marker_str}")
+            layer_lines.append("  }")
+
+        # Add intra-layer relationships
+        layer_table_names = { _eid(t.get("name", "")) for t in layer_tables }
+        intra_rels = []
+        for r in all_rels:
+            if r["from"] in layer_table_names and r["to"] in layer_table_names:
+                intra_rels.append(f"  {r['from']} {r['cardinality']} {r['to']} : {r['label']}")
+        
+        if intra_rels:
+            layer_lines.extend(intra_rels)
+
+        final_sections.append("\n".join(layer_lines))
+
+    # Cross-layer relationships
+    for r in all_rels:
+        from_layer = get_layer_for_table(r["from"], table_to_layer)
+        to_layer = get_layer_for_table(r["to"], table_to_layer)
+        if from_layer != to_layer:
+            if r["from"] in rendered_tables and r["to"] in rendered_tables:
+                cross_layer_rels.append(f"  {r['from']} {r['cardinality']} {r['to']} : {r['label']}")
+
+    # Combine everything
+    output_lines = ["erDiagram"]
+    for section in final_sections:
+        output_lines.append(section)
+
+    if cross_layer_rels:
+        output_lines.append("\n  %% ─── CROSS-LAYER RELATIONSHIPS ───")
+        output_lines.extend(cross_layer_rels)
+
+    return "\n".join(output_lines)
 
 
 
@@ -663,7 +858,7 @@ def detect_truncation(mermaid: str) -> bool:
     
     # 3. Flowchart: open subgraph with no matching 'end'
     subgraph_opens = len(re.findall(r'\bsubgraph\b', text, re.IGNORECASE))
-    subgraph_ends  = len(re.findall(r'^\s*end\s*$', text, re.IGNORECASE | re.MULTILINE))
+    subgraph_ends  = len(re.findall(r'^\s*end\b', text, re.IGNORECASE | re.MULTILINE))
     if subgraph_opens > subgraph_ends:
         return True
     

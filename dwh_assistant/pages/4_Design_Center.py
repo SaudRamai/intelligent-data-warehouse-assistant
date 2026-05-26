@@ -1083,6 +1083,11 @@ def main():
     ddl = (st.session_state.get("ddl_generation") or 
            st.session_state.get("artifacts"))
     
+    # Schema context: derived from AI architecture layers (metadata-driven)
+    schema_ctx = (st.session_state.get("schema_context") or
+                  (st.session_state.get("generation_results") or {}).get("outputs", {}).get("schema_context") or
+                  {})
+    
     doc_design = (st.session_state.get("documentation_design") or 
                   st.session_state.get("final_blueprint") or {})
     
@@ -1546,36 +1551,62 @@ def main():
             if not unique_tables:
                 st.info("No tables generated yet. Run AI Architect to populate.")
             else:
-                table_names = sorted([t.get("name") for t in unique_tables])
-                selected_t_name = st.selectbox("Select Entity to Review", table_names, index=0, key="sel_inv")
+                from collections import defaultdict
+                from dwh_assistant.backend.validator import layer_sort_key
                 
-                t_obj = next((t for t in unique_tables if t.get("name") == selected_t_name), None)
+                # Group unique tables by layer
+                tables_by_layer = defaultdict(list)
+                for t in unique_tables:
+                    if not isinstance(t, dict):
+                        continue
+                    layer = t.get("layer", "Warehouse")
+                    layer_display = str(layer).title()
+                    tables_by_layer[layer_display].append(t)
+                    
+                sorted_layer_names = sorted(tables_by_layer.keys(), key=layer_sort_key)
                 
-                if t_obj:
-                    mcol1, mcol2 = st.columns([3, 1])
-                    with mcol1:
-                        st.markdown(f"#### Metadata: `{selected_t_name}`")
-                        cols = t_obj.get("columns", [])
-                        df_data = []
-                        for c in cols:
-                            df_data.append({
-                                "Column": c.get("name"),
-                                "Type": c.get("type"),
-                                "PK": "KEY" if t_obj.get("primary_key") == c.get("name") or c.get("primary_key") else "",
-                                "FK": "FK" if c.get("is_fk") or c.get("references") else "",
-                                "References": c.get("references") or "",
-                                "Description": c.get("description", "")
-                            })
-                        st.dataframe(pd.DataFrame(df_data), width='stretch', hide_index=True)
-                    with mcol2:
-                        st.markdown("#### Entity Properties")
-                        st.info(f"**Layer**: {t_obj.get('layer', 'N/A')}")
-                        st.success(f"**PK**: {t_obj.get('primary_key', 'None')}")
-                        t_rels = [r for r in rel_list if r.get("from") == selected_t_name or r.get("from_table") == selected_t_name]
-                        if t_rels:
-                            st.markdown("#### Outbound Joins")
-                            for r in t_rels:
-                                st.code(f"→ {r.get('to') or r.get('to_table')}")
+                for layer_name in sorted_layer_names:
+                    with st.expander(f"📁 {layer_name.upper()} LAYER ({len(tables_by_layer[layer_name])} Entities)", expanded=(layer_name.lower() in ["gold", "serving"])):
+                        layer_tables = tables_by_layer[layer_name]
+                        t_names = sorted([t.get("name") for t in layer_tables])
+                        
+                        selected_t_name = st.selectbox(
+                            "Select Entity to Review", 
+                            t_names, 
+                            key=f"sel_inv_{layer_name.lower()}",
+                            label_visibility="collapsed"
+                        )
+                        
+                        t_obj = next((t for t in layer_tables if t.get("name") == selected_t_name), None)
+                        if t_obj:
+                            mcol1, mcol2 = st.columns([3, 1])
+                            with mcol1:
+                                st.markdown(f"##### Metadata: `{selected_t_name}`")
+                                cols = t_obj.get("columns", [])
+                                df_data = []
+                                for c in cols:
+                                    is_pk = t_obj.get("primary_key") == c.get("name") or c.get("primary_key") or c.get("pk")
+                                    is_fk = c.get("is_fk") or c.get("references") or c.get("fk")
+                                    df_data.append({
+                                        "Column": c.get("name"),
+                                        "Type": c.get("type"),
+                                        "PK": "🔑 PK" if is_pk else "",
+                                        "FK": "🔗 FK" if is_fk else "",
+                                        "References": c.get("references") or c.get("ref") or "",
+                                        "Description": c.get("description", "")
+                                    })
+                                st.dataframe(pd.DataFrame(df_data), width='stretch', hide_index=True)
+                            with mcol2:
+                                st.markdown("##### Entity Properties")
+                                st.info(f"**Layer**: {t_obj.get('layer', 'N/A')}")
+                                pk_name = t_obj.get('primary_key') or next((c.get("name") for c in t_obj.get("columns", []) if c.get("pk")), "None")
+                                st.success(f"**PK**: {pk_name}")
+                                t_rels = [r for r in rel_list if r.get("from") == selected_t_name or r.get("from_table") == selected_t_name]
+                                if t_rels:
+                                    st.markdown("##### Outbound Joins")
+                                    for r in t_rels:
+                                        target = r.get('to') or r.get('to_table')
+                                        st.code(f"→ {target}")
 
         
 
@@ -1707,7 +1738,21 @@ def main():
                     except Exception: return str(val)
                 return str(val)
     
-            ddl_sql_str = _to_str(ddl.get("ddl_sql"), "-- No DDL generated")
+            schema_creation_str = _to_str(ddl.get("schema_creation_sql"), "")
+            if not schema_creation_str:
+                # Pre-calculate fallback from schema_ctx so it is editable
+                ctx_layers = schema_ctx.get("layers", []) if isinstance(schema_ctx, dict) else []
+                if ctx_layers:
+                    from dwh_assistant.backend.executor import layer_to_schema_name as _l2s
+                    lines = ["-- ========================================================================="]
+                    lines.append("-- SCHEMA CREATION (Derived from AI Architecture Strategy)")
+                    lines.append("-- =========================================================================")
+                    for lm in ctx_layers:
+                        sname = lm.get("schema_name") or _l2s(lm.get("layer_name", "WAREHOUSE"))
+                        lines.append(f"CREATE SCHEMA IF NOT EXISTS {sname};")
+                    schema_creation_str = "\n".join(lines)
+
+            ddl_sql_str     = _to_str(ddl.get("ddl_sql"), "-- No DDL generated")
             
             # Enhanced Documentation Rendering for Structured Objects
             doc_obj = doc_design
@@ -1731,37 +1776,137 @@ def main():
                 doc_str = _to_str(doc_obj, "No documentation generated.")
             grant_sql_str = _to_str(ddl.get("grant_sql"), "-- No Grants generated")
             transform_sql_str = _to_str(ddl.get("transform_sql"), "-- No Transformations generated")
-    
+
+            # Synchronize editable state with original AI payload
+            original_payload = {
+                "schema_creation": schema_creation_str,
+                "ddl_sql": ddl_sql_str,
+                "grant_sql": grant_sql_str,
+                "transform_sql": transform_sql_str
+            }
+            if st.session_state.get("artifacts_original_payload") != original_payload:
+                st.session_state["edited_schema_creation"] = schema_creation_str
+                st.session_state["edited_ddl_sql"] = ddl_sql_str
+                st.session_state["edited_grant_sql"] = grant_sql_str
+                st.session_state["edited_transform_sql"] = transform_sql_str
+                st.session_state["artifacts_original_payload"] = original_payload
+
+            # Ensure keys exist in session state
+            if "edited_schema_creation" not in st.session_state: st.session_state["edited_schema_creation"] = schema_creation_str
+            if "edited_ddl_sql" not in st.session_state: st.session_state["edited_ddl_sql"] = ddl_sql_str
+            if "edited_grant_sql" not in st.session_state: st.session_state["edited_grant_sql"] = grant_sql_str
+            if "edited_transform_sql" not in st.session_state: st.session_state["edited_transform_sql"] = transform_sql_str
+
             full_sql_script = f"""-- =========================================================================
-    -- CORE DDL (TABLES & SCHEMAS)
-    -- =========================================================================
-    {ddl_sql_str}
-    
-    -- =========================================================================
-    -- ACCESS CONTROL (RBAC & GRANTS)
-    -- =========================================================================
-    {grant_sql_str}
-    
-    -- =========================================================================
-    -- BUSINESS TRANSFORMATIONS (ELT LOGIC)
-    -- =========================================================================
-    {transform_sql_str}
-    """
-    
+-- SCHEMA CREATION (AI-Derived from Architecture Strategy)
+-- =========================================================================
+{st.session_state["edited_schema_creation"]}
+
+-- =========================================================================
+-- CORE DDL (TABLES & SCHEMAS)
+-- =========================================================================
+{st.session_state["edited_ddl_sql"]}
+
+-- =========================================================================
+-- ACCESS CONTROL (RBAC & GRANTS)
+-- =========================================================================
+{st.session_state["edited_grant_sql"]}
+"""
+
             c1, c2 = st.columns([2, 1])
             with c1:
+                # Add the Developer Mode Edit toggle
+                edit_mode = st.toggle("✏️ Enable Developer Edit Mode (Modify AI Artifacts)", value=False, key="artifacts_edit_mode")
+                
                 # Sub-tabs for better organization
-                sub_tabs = st.tabs(["Full Script", "Tables", "Grants", "Transformations"])
+                sub_tabs = st.tabs(["Full Script", "Schemas", "Tables", "Grants", "Transformations"])
                 
                 with sub_tabs[0]:
+                    if edit_mode:
+                        st.info("💡 Edit the individual tabs to modify this compiled deployment script.")
                     st.code(full_sql_script, language="sql", line_numbers=True)
+
                 with sub_tabs[1]:
-                    st.code(ddl_sql_str, language="sql", line_numbers=True)
+                    st.markdown("#### Schema Architecture Map")
+                    st.markdown("""
+                        <div style="background: #F0F9FF; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px;">
+                            <span style="font-weight: 600; color: #0369A1;">Metadata-Driven Schemas:</span>
+                            Derived dynamically from the AI-generated architecture layers — no hardcoded schema names.
+                        </div>
+                    """, unsafe_allow_html=True)
+
+                    # Render the schema layer → schema name → table count table
+                    ctx_layers = schema_ctx.get("layers", []) if isinstance(schema_ctx, dict) else []
+                    if ctx_layers:
+                        schema_map_rows = []
+                        for lm in ctx_layers:
+                            schema_map_rows.append({
+                                "Architecture Layer": lm.get("layer_name", "N/A"),
+                                "Snowflake Schema":   lm.get("schema_name", "N/A"),
+                                "Tables Assigned":    len(lm.get("tables", [])),
+                                "Table Names":        ", ".join(t.get("name", "") for t in lm.get("tables", []))
+                            })
+                        st.dataframe(pd.DataFrame(schema_map_rows), hide_index=True, use_container_width=True)
+                        st.divider()
+                    else:
+                        st.info("Schema context not yet available. Run AI generation to populate.")
+
+                    # Show/Edit the deterministic CREATE SCHEMA block
+                    if edit_mode:
+                        st.markdown("#### Edit Schema Creation Statements")
+                        st.session_state["edited_schema_creation"] = st.text_area(
+                            "Edit Schema Creation SQL",
+                            value=st.session_state["edited_schema_creation"],
+                            height=300,
+                            key="editor_schema_creation",
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        st.markdown("#### CREATE SCHEMA Statements")
+                        if st.session_state["edited_schema_creation"].strip():
+                            st.code(st.session_state["edited_schema_creation"], language="sql", line_numbers=True)
+                        else:
+                            st.info("No schema creation SQL available yet.")
+
                 with sub_tabs[2]:
-                    st.code(grant_sql_str, language="sql", line_numbers=True)
+                    if edit_mode:
+                        st.markdown("#### Edit Table DDL SQL")
+                        st.session_state["edited_ddl_sql"] = st.text_area(
+                            "Edit Table DDL SQL",
+                            value=st.session_state["edited_ddl_sql"],
+                            height=500,
+                            key="editor_ddl_sql",
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        st.code(st.session_state["edited_ddl_sql"], language="sql", line_numbers=True)
+
                 with sub_tabs[3]:
-                    st.markdown("#### Transformations")
-                    st.code(transform_sql_str, language="sql")
+                    if edit_mode:
+                        st.markdown("#### Edit Access Control SQL")
+                        st.session_state["edited_grant_sql"] = st.text_area(
+                            "Edit Access Control SQL",
+                            value=st.session_state["edited_grant_sql"],
+                            height=500,
+                            key="editor_grant_sql",
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        st.code(st.session_state["edited_grant_sql"], language="sql", line_numbers=True)
+
+                with sub_tabs[4]:
+                    if edit_mode:
+                        st.markdown("#### Edit Transformations SQL")
+                        st.session_state["edited_transform_sql"] = st.text_area(
+                            "Edit Transformations SQL",
+                            value=st.session_state["edited_transform_sql"],
+                            height=500,
+                            key="editor_transform_sql",
+                            label_visibility="collapsed"
+                        )
+                    else:
+                        st.markdown("#### Transformations")
+                        st.code(st.session_state["edited_transform_sql"], language="sql")
     
                 st.divider()
                 d1, d2 = st.columns(2)
@@ -1808,20 +1953,24 @@ def main():
                 st.divider()
                 st.markdown("##### Target Destination")
                 
-                # Fetch architecture dynamically from session state for schema naming
-                arch_for_schema = st.session_state.get("architecture_strategy", {}) or st.session_state.get("architecture", {})
-                default_schema = arch_for_schema.get("architecture_type", "ANALYTICS_SCHEMA").upper().replace(" ", "_")
-                
                 t_db = st.text_input("Database", value="ANALYTICS_PROD")
-                t_schema = st.text_input("Schema", value=default_schema)
                 
                 if st.button("EXECUTE FULL DEPLOYMENT", type="primary", width='stretch'):
                     from dwh_assistant.backend.executor import execute_deployment
                     with st.status("Deploying to Snowflake...", expanded=True) as status:
-                        res = execute_deployment(st.session_state.snowflake_session, full_sql_script, t_db, t_schema, project_id=st.session_state.get("project_id", "N/A"))
+                        schema_context = st.session_state.get("schema_context")
+                        res = execute_deployment(
+                            st.session_state.snowflake_session,
+                            full_sql_script,
+                            t_db,
+                            project_id=st.session_state.get("project_id", "N/A"),
+                            schema_context=schema_context
+                        )
                         if res["success"]:
                             status.update(label="Deployment Successful!", state="complete", expanded=False)
                             st.success(f"Successfully executed {res['statements_run']} statements.")
+                            if res.get("skipped_count", 0) > 0:
+                                st.warning(f"⚠️ Skipped {res['skipped_count']} non-blocking statements (e.g. references to objects or roles that do not exist).")
                             st.dataframe(pd.DataFrame(res["results"]) if "results" in res else pd.DataFrame([{"status": "deployed"}]), width='stretch', hide_index=True)
                         else:
                             status.update(label="Deployment Failed", state="error", expanded=True)

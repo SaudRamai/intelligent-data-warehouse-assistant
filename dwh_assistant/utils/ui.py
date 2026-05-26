@@ -18,12 +18,36 @@ def init_session_state():
 def reset_project_state():
     """Clears project-specific data to start fresh."""
     st.session_state["project_id"] = str(uuid.uuid4())
-    for key in ["requirements", "data_profile", "generation_results"]:
-        st.session_state[key] = {}
+    st.session_state["requirements"] = {}
+    st.session_state["data_profile"] = {}
+    st.session_state["generation_results"] = {}
     st.session_state["form_complete"] = False
-    # Clear flow caches
+    st.session_state["current_section"] = 1
+    st.session_state["form_buffer"] = {}
+    
+    # Clean all generation artifacts, UI sliders, toggles, editors and cached keys
+    keys_to_delete = []
+    prefix_list = [
+        "flow_state_", "mini_erd_", "dag_state_",
+        "editor_", "toggle_", "slider_", "sel_"
+    ]
+    exact_keys = [
+        "architecture_selection", "architecture", "architecture_strategy",
+        "schema_modeling", "schema_design", "schema", "schema_context",
+        "pipeline_design", "pipeline", "governance_security", "governance",
+        "ddl_generation", "artifacts", "documentation_design", "final_blueprint", "blueprint",
+        "history", "edited_schema_creation", "edited_ddl_sql", "edited_grant_sql", "edited_transform_sql",
+        "artifacts_original_payload", "profile_source", "architecture_strategy_raw",
+        "schema_modeling_raw", "metadata_analysis_raw", "relationship_design_raw",
+        "pipeline_design_raw", "governance_security_raw", "ddl_generation_raw",
+        "final_blueprint_raw", "history_raw", "cortex_memory_cache"
+    ]
     for k in list(st.session_state.keys()):
-        if any(p in k for p in ["flow_state_", "mini_erd_", "dag_state_"]): del st.session_state[k]
+        if any(p in k for p in prefix_list) or k in exact_keys:
+            keys_to_delete.append(k)
+            
+    for k in keys_to_delete:
+        del st.session_state[k]
 
 # --- 2. PREMIUM STYLING ---
 

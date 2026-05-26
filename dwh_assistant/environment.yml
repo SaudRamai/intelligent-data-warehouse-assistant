@@ -1,11 +1,8 @@
 name: dwh_assistant
 channels:
-  - defaults
+  - snowflake
 dependencies:
   - python=3.9
   - pandas
-  - pip
-  - pip:
-    - streamlit==1.32.0
-    - snowflake-snowpark-python==1.18.0
-    - streamlit-flow==1.2.3
+  - streamlit
+  - snowflake-snowpark-python

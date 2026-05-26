@@ -26,6 +26,152 @@ from dwh_assistant.backend.executor import call_cortex, call_cortex_with_continu
 from dwh_assistant.backend.validator import validate_step_output, heal_mermaid_diagram
 from dwh_assistant.backend.prompts import build_prompt
 
+# ═══════════════════════════════════════════════
+# METADATA-DRIVEN SCHEMA CONTEXT BUILDER
+# ═══════════════════════════════════════════════
+
+def layer_to_schema_name(layer_name: str) -> str:
+    """
+    Deterministically converts an AI-generated architecture layer name
+    into a valid Snowflake schema identifier.
+    No hardcoding — works for any architecture type (Medallion, Data Vault,
+    Lakehouse, Three-tier, Cloud DWH, Modern ELT, etc.).
+    """
+    import re
+    # Slugify: replace any non-alphanumeric characters with underscores
+    slug = re.sub(r'[^a-zA-Z0-9]', '_', layer_name.strip())
+    # Collapse multiple underscores, strip leading/trailing underscores
+    slug = re.sub(r'_+', '_', slug).strip('_').upper()
+    return slug if slug else 'WAREHOUSE_LAYER'
+
+
+def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dict:
+    """
+    Derives a fully metadata-driven schema context from the AI-generated
+    architecture strategy and schema modeling outputs.
+
+    Returns a dict:
+    {
+        "layers": [
+            {
+                "layer_name":  str,   # original AI layer name (e.g. "Bronze")
+                "schema_name": str,   # slugified Snowflake schema name (e.g. "BRONZE")
+                "tables":      list   # table objects belonging to this layer
+            },
+            ...
+        ]
+    }
+
+    Rules:
+    - Layer names come exclusively from architecture_strategy.layers.
+    - Each table's .layer field is matched case-insensitively to the AI layer list.
+    - Tables with unmatched layers fall back to the closest layer or a catch-all.
+    - No schema names are hardcoded.
+    """
+    if not isinstance(arch_result, dict):
+        arch_result = {}
+    if not isinstance(schema_modeling_result, dict):
+        schema_modeling_result = {}
+
+    # 1. Pull the canonical layer list from architecture_strategy
+    raw_layers = arch_result.get("layers", [])
+    if not isinstance(raw_layers, list) or not raw_layers:
+        # Fallback: single generic layer
+        raw_layers = ["Warehouse"]
+
+    # 2. Build ordered layer metadata
+    layer_meta = []
+    for layer_name in raw_layers:
+        layer_meta.append({
+            "layer_name":  layer_name,
+            "schema_name": layer_to_schema_name(layer_name),
+            "tables":      []
+        })
+
+    # 3. Build a lookup: normalised_layer_label → index in layer_meta
+    def _norm(s: str) -> str:
+        return re.sub(r'[^a-z0-9]', '', str(s).lower())
+
+    label_to_idx = {_norm(lm["layer_name"]): i for i, lm in enumerate(layer_meta)}
+    # Also map by generated schema_name for double-coverage
+    schema_to_idx = {_norm(lm["schema_name"]): i for i, lm in enumerate(layer_meta)}
+
+    # 4. Group tables into their layers
+    all_tables = schema_modeling_result.get("tables", [])
+    if not isinstance(all_tables, list):
+        all_tables = []
+
+    unmatched = []  # Tables whose .layer doesn't map to any known layer
+    for t in all_tables:
+        if not isinstance(t, dict):
+            continue
+        t_layer_raw = str(t.get("layer", "")).strip()
+        t_layer_norm = _norm(t_layer_raw)
+
+        # Exact normalised match first
+        if t_layer_norm in label_to_idx:
+            idx = label_to_idx[t_layer_norm]
+        elif t_layer_norm in schema_to_idx:
+            idx = schema_to_idx[t_layer_norm]
+        else:
+            # Partial substring match (handles cases like "Gold (Serving)" → "Gold")
+            idx = None
+            for lbl, li in label_to_idx.items():
+                if lbl in t_layer_norm or t_layer_norm in lbl:
+                    idx = li
+                    break
+            if idx is None:
+                unmatched.append(t)
+                continue
+
+        # Append a lean copy of the table (name + columns only) to keep token budget tight
+        layer_meta[idx]["tables"].append({
+            "name":    t.get("name", "unknown_table"),
+            "columns": [
+                {
+                    "name": c.get("name"),
+                    "type": c.get("type"),
+                    "pk":   c.get("pk") or c.get("primary_key") or c.get("is_pk") or False,
+                    "fk":   c.get("fk") or c.get("is_fk") or False,
+                    "ref":  c.get("ref") or c.get("references")
+                }
+                for c in t.get("columns", []) if isinstance(c, dict)
+            ]
+        })
+
+    # 5. Distribute unmatched tables into the last layer (most common catch-all)
+    if unmatched:
+        catch_all_idx = len(layer_meta) - 1
+        print(f"[SCHEMA CONTEXT] {len(unmatched)} tables had unmatched layers — routed to '{layer_meta[catch_all_idx]['layer_name']}'")
+        for t in unmatched:
+            layer_meta[catch_all_idx]["tables"].append({
+                "name":    t.get("name", "unknown_table"),
+                "columns": [
+                    {
+                        "name": c.get("name"),
+                        "type": c.get("type"),
+                        "pk":   c.get("pk") or c.get("primary_key") or c.get("is_pk") or False,
+                        "fk":   c.get("fk") or c.get("is_fk") or False,
+                        "ref":  c.get("ref") or c.get("references")
+                    }
+                    for c in t.get("columns", []) if isinstance(c, dict)
+                ]
+            })
+
+    # 6. Remove empty layers (architectures may define layers not yet populated)
+    #    But keep at least one layer to avoid empty context
+    populated = [lm for lm in layer_meta if lm["tables"]]
+    if not populated:
+        populated = layer_meta  # Keep all if none are populated yet
+
+    print(f"[SCHEMA CONTEXT] Built context: {[lm['schema_name'] for lm in populated]} "
+          f"({sum(len(lm['tables']) for lm in populated)} tables total)")
+
+    return {"layers": populated}
+
+
+import re  # needed by layer_to_schema_name at module level
+
 # Core requirements for each step to be considered "Complete"
 # Refactored for Unified Modeling Flow
 STEP_REQUIRED_KEYS = {
@@ -218,6 +364,56 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                             lines.append(f"    User --> {rname}")
                         output["mermaid_diagram"] = "\n".join(lines) if len(lines) > 1 else "graph LR\n  Analyst --> CentralDataStore"
 
+                    if step_name == "architecture_strategy":
+                        layers = output.get("layers", [])
+                        paradigm = output.get("modeling_paradigm", "STAR_SCHEMA")
+                        arch_type = output.get("architecture_type", "CLOUD_DWH")
+                        reasoning = output.get("reasoning", "")
+                        alts_cons = output.get("alternatives_considered", [])
+                        
+                        if "architecture_justification" not in output:
+                            alts = [a.get("option") if isinstance(a, dict) else str(a) for a in alts_cons]
+                            why_rejected = "; ".join([f"{a.get('option')}: {a.get('why_rejected')}" for a in alts_cons if isinstance(a, dict) and a.get("why_rejected")])
+                            output["architecture_justification"] = {
+                                "why_chosen": reasoning,
+                                "alternatives_rejected": alts,
+                                "assumptions_made": [
+                                    f"Workload characteristics favor a {arch_type} architecture.",
+                                    f"Selected {paradigm} paradigm matches data relationship density."
+                                ],
+                                "constraints_influenced": [
+                                    "Design optimized for latency tolerance and cost-complexity balance.",
+                                    f"Alternative rejection rationale: {why_rejected}" if why_rejected else "Compliance and team skill constraints."
+                                ]
+                            }
+                        if "data_model_blueprint" not in output:
+                            output["data_model_blueprint"] = {
+                                "schema_type": paradigm,
+                                "core_entities": [f"Core tables matching {paradigm}"],
+                                "primary_relationships": [f"Surrogate-key relationships in {paradigm}"]
+                            }
+                        if "data_flow" not in output:
+                            output["data_flow"] = {
+                                "ingestion": "Stage raw data into ingestion zone.",
+                                "processing": f"Cleanse, conform, and refine using {paradigm} modeling rules.",
+                                "serving": "Expose semantic layers to BI and analytics consumers."
+                            }
+                        if "governance" not in output:
+                            output["governance"] = {
+                                "security": "Enforce strict RBAC permissions and column-level masking on sensitive/PII data.",
+                                "lineage": "Track full data lineage from source extraction to gold serving tables."
+                            }
+                        if "complexity" not in output:
+                            metrics = output.get("fitness_metrics", {})
+                            comp_val = metrics.get("Complexity", 50)
+                            output["complexity"] = "High" if comp_val > 70 else ("Medium" if comp_val > 40 else "Low")
+                        if "estimated_cost_tier" not in output:
+                            metrics = output.get("fitness_metrics", {})
+                            cost_val = metrics.get("Cost", 50)
+                            output["estimated_cost_tier"] = "High" if cost_val > 70 else ("Medium" if cost_val > 40 else "Low")
+                        if "reasoning_summary" not in output:
+                            output["reasoning_summary"] = reasoning
+
                 # Normalizing mermaid keys
                 if isinstance(output, dict) and "mermaid" in output and "mermaid_diagram" not in output:
                     output["mermaid_diagram"] = output.pop("mermaid")
@@ -236,7 +432,11 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                             diag_text == "graph LR\n  A --> B" or 
                             diag_text == "erDiagram"
                         )
-                        status_str = "BROKEN / STUB" if is_broken else "SUCCESSFULLY GENERATED"
+                        is_batch = requirements.get("batch_context", "Full Model") != "Full Model" if isinstance(requirements, dict) else False
+                        if is_batch and step_name == "schema_modeling":
+                            status_str = "BATCH PLACEHOLDER (Expected)"
+                        else:
+                            status_str = "BROKEN / STUB" if is_broken else "SUCCESSFULLY GENERATED"
                         print(f"[AI ARCHITECT LOG] Diagram Status for '{step_name}': {status_str} (Length: {len(diag_text)} chars)\n")
                     if "tables" in output:
                         print(f"[AI ARCHITECT LOG] Generated Tables Count: {len(output['tables'])}")
@@ -278,62 +478,84 @@ def _add_ctx(ctx):
 # --- DERIVATIVE DETERMINISTIC GENERATORS ---
 
 def run_ddl_derivative(session, requirements, data_profile, results, model, status_callback):
-    """Generates DDL for ALL tables in the unified schema using deterministic parallel batches."""
+    """Generates DDL for ALL tables in the unified schema using deterministic parallel batches.
+
+    Enhancement: Derives CREATE SCHEMA statements from the AI-generated
+    architecture_strategy.layers — fully metadata-driven, no hardcoded schema names.
+    """
     schema = results.get("schema_modeling", {})
     tables = schema.get("tables", [])
-    if not tables: return {"ddl_sql": "-- No tables found"}
+    if not tables: return {"ddl_sql": "-- No tables found", "grant_sql": "", "transform_sql": ""}
 
-    print(f"\n      [DDL DERIVATIVE] Generating DDL for {len(tables)} tables...")
-    
+    # ─── BUILD SCHEMA CONTEXT (METADATA-DRIVEN) ────────────────────────────────
+    arch_result = results.get("architecture_strategy", {})
+    if not isinstance(arch_result, dict):
+        arch_result = {}
+    schema_ctx = build_schema_context(arch_result, schema)
+    results["schema_context"] = schema_ctx  # Propagate for prompt injection
+
+    # ─── IMPORT DETERMINISTIC ASSEMBLY HELPER ──────────────────────────────────
+    from dwh_assistant.backend.executor import assemble_full_ddl
+
+    print(f"\n      [DDL DERIVATIVE] Generating DDL for {len(tables)} tables across "
+          f"{len(schema_ctx['layers'])} schema(s)...")
+
     all_ddls = []
     all_grants = []
     all_transforms = []
-    
+
     batch_size = 12
-    batches = [tables[i:i + batch_size] for i in range(0, len(tables), batch_size)]
-    
+    # Batch by layer so each AI call gets tables that share the same schema
+    layer_batches = []
+    for layer_entry in schema_ctx["layers"]:
+        layer_tables = layer_entry["tables"]
+        for i in range(0, len(layer_tables), batch_size):
+            layer_batches.append({
+                "schema_ctx": {
+                    "layers": [{
+                        "layer_name":  layer_entry["layer_name"],
+                        "schema_name": layer_entry["schema_name"],
+                        "tables":      layer_tables[i:i + batch_size]
+                    }]
+                }
+            })
+
+    # Fallback: if no layer batches (empty context), use old flat batches
+    if not layer_batches:
+        batch_size_flat = 12
+        flat_batches = [tables[i:i + batch_size_flat] for i in range(0, len(tables), batch_size_flat)]
+        for batch in flat_batches:
+            layer_batches.append({
+                "schema_ctx": {
+                    "layers": [{"layer_name": "Warehouse", "schema_name": "WAREHOUSE", "tables": batch}]
+                }
+            })
+
     ctx = _get_ctx()
 
-    def _run_ddl_batch(batch):
+    def _run_ddl_batch(batch_info):
         _add_ctx(ctx)
-        batch_results = {"target_table_schema": {"tables": batch}}
+        batch_results = dict(results)  # inherit arch/schema context
+        batch_results["schema_context"] = batch_info["schema_ctx"]
         return run_step(session, "ddl_generation", requirements, data_profile, batch_results, model)
 
-    with ThreadPoolExecutor(max_workers=min(4, len(batches) or 1)) as executor:
-        futures = {executor.submit(_run_ddl_batch, b): b for b in batches}
+    with ThreadPoolExecutor(max_workers=min(4, len(layer_batches) or 1)) as executor:
+        futures = {executor.submit(_run_ddl_batch, b): b for b in layer_batches}
         for future in as_completed(futures):
             res = future.result()
             if isinstance(res, dict):
-                if "ddl_sql" in res: all_ddls.append(res["ddl_sql"])
+                if "ddl_sql" in res:   all_ddls.append(res["ddl_sql"])
                 if "grant_sql" in res: all_grants.append(res["grant_sql"])
                 if "transform_sql" in res: all_transforms.append(res["transform_sql"])
-    
-    # 1. Dedup and IF NOT EXISTS Injection
-    raw_ddl_text = "\n\n".join(all_ddls)
-    import re
-    # Inject IF NOT EXISTS
-    raw_ddl_text = re.sub(r'CREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)', 'CREATE TABLE IF NOT EXISTS ', raw_ddl_text, flags=re.IGNORECASE)
-    
-    # Simple Deduplication & Ordering (Dimensions first)
-    statements = [s.strip() for s in raw_ddl_text.split(';') if s.strip()]
-    unique_statements = list(dict.fromkeys(statements)) # Keeps insertion order but dedups
-    
-    # Sort dims before facts
-    def _stmt_sort_key(s):
-        s_upper = s.upper()
-        if 'DIM_' in s_upper: return 0
-        if 'FCT_' in s_upper or 'FACT_' in s_upper: return 2
-        return 1
-        
-    unique_statements.sort(key=_stmt_sort_key)
-    
-    final_ddl = ";\n\n".join(unique_statements) + ";" if unique_statements else "-- No valid DDL generated"
 
-    return {
-        "ddl_sql": final_ddl,
-        "grant_sql": "\n\n".join(all_grants),
-        "transform_sql": "\n\n".join(all_transforms)
-    }
+    # ─── DETERMINISTIC ASSEMBLY (POST-PROCESSING) ──────────────────────────────
+    assembled = assemble_full_ddl(
+        schema_context=schema_ctx,
+        ai_ddl_parts=all_ddls,
+        ai_grant_parts=all_grants,
+        ai_transform_parts=all_transforms
+    )
+    return assembled
 
 def run_parallel_schema(session, requirements, data_profile, results, model, status_callback):
     """Executes schema modeling in parallel batches to improve speed and prevent truncation."""
@@ -366,6 +588,39 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
             if isinstance(res, dict):
                 merged_results["tables"].extend(res.get("tables", []))
                 
+    # --- POST-MERGE TABLE DEDUPLICATION & CONSOLIDATION ---
+    raw_tables = merged_results["tables"]
+    unique_tables = {}
+    for t in raw_tables:
+        if not isinstance(t, dict) or not t.get("name"):
+            continue
+        t_name = t["name"].upper().strip()
+        # Collapse multiple underscores
+        norm_name = re.sub(r'_+', '_', t_name).strip('_')
+        # Plural key comparison (strip trailing S if it exists)
+        compare_key = norm_name[:-1] if norm_name.endswith('S') and len(norm_name) > 3 else norm_name
+        
+        if compare_key in unique_tables:
+            existing = unique_tables[compare_key]
+            # Merge columns
+            existing_cols = {c.get("name", "").upper(): c for c in existing.get("columns", []) if isinstance(c, dict)}
+            for c in t.get("columns", []):
+                if not isinstance(c, dict): continue
+                c_name = c.get("name", "").upper()
+                if c_name not in existing_cols:
+                    existing["columns"].append(c)
+            # Prefer the plural or longer name if it exists (commonly plural is standard, e.g. FACT_ORDERS)
+            if len(t_name) > len(existing["name"]):
+                existing["name"] = t_name
+            # Preserve layer if not set
+            if not existing.get("layer") and t.get("layer"):
+                existing["layer"] = t["layer"]
+        else:
+            t["name"] = norm_name
+            unique_tables[compare_key] = t
+            
+    merged_results["tables"] = list(unique_tables.values())
+
     # --- POST-MERGE FK RECONCILIATION ---
     tables = merged_results["tables"]
     pk_index = {}
@@ -390,6 +645,10 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
                         canonical_pk = pk_index[tt_lower]
                         if target_col.lower() != canonical_pk.lower():
                             c["ref"] = f"{target_table}.{canonical_pk}"
+    # Synthesize the complete visual ERD diagram from the consolidated tables list
+    from dwh_assistant.backend.validator import synthesize_erd_from_tables
+    merged_results["mermaid_diagram"] = synthesize_erd_from_tables(tables)
+    print(f"[AI ARCHITECT LOG] Final consolidated ERD diagram synthesized for 'schema_modeling'. Length: {len(merged_results['mermaid_diagram'])} chars.\n")
     
     return merged_results
 
@@ -449,6 +708,9 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         print("\n--- PHASE 4: DDL GENERATION ---")
         ddl_res = run_ddl_derivative(session, requirements, data_profile, results, model, status_callback)
         results["ddl_generation"] = ddl_res
+        # Propagate schema_context to session state for Design Center rendering
+        if "schema_context" in results:
+            st.session_state["schema_context"] = results["schema_context"]
         st.session_state["generation_results"] = results
 
         # --- 5. FINAL BLUEPRINT + HISTORY (Parallel End) ---

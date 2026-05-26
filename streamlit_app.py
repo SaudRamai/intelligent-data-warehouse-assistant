@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 
 # Fix for ModuleNotFoundError when running from inside the package
-root_path = str(Path(__file__).parent.parent)
+root_path = str(Path(__file__).parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
@@ -135,7 +135,7 @@ def main():
             st.switch_page("pages/4_Design_Center.py")
         if c2.button("Start Fresh Project", width='stretch'):
             reset_project_state()
-            st.rerun()
+            st.switch_page("pages/1_Intake_Form.py")
     st.markdown('</div>', unsafe_allow_html=True)
 
 if __name__ == "__main__":

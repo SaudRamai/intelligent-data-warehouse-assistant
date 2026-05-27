@@ -125,15 +125,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             s = re.sub(r'```\s*(.*?)\s*```', r'\1', s, flags=re.DOTALL | re.IGNORECASE)
         return s.strip()
 
-    # 2. Task-specific SQL Scraping (MANDATORY for DDL)
-    if task_type == "ddl_generation":
-        sql_blocks = re.findall(r'```(?:sql)?\s*(.*?)\s*```', text, re.DOTALL | re.IGNORECASE)
-        if sql_blocks:
-            return {
-                "ddl_sql": sql_blocks[0].strip(),
-                "grant_sql": sql_blocks[1].strip() if len(sql_blocks) > 1 else "",
-                "transform_sql": sql_blocks[2].strip() if len(sql_blocks) > 2 else "-- No transforms required"
-            }
     # 1a. Surgical unboxing of double-encoded stringified JSON payloads from Snowflake AI_COMPLETE
     clean_start = text.strip()
     is_envelope = clean_start.startswith('{') and (('"choices"' in clean_start[:150]) or ('"messages"' in clean_start[:150]))

@@ -1607,7 +1607,9 @@ def main():
                 sorted_layer_names = sorted(tables_by_layer.keys(), key=layer_sort_key)
                 
                 for layer_name in sorted_layer_names:
-                    with st.expander(f"📁 {layer_name.upper()} LAYER ({len(tables_by_layer[layer_name])} Entities)", expanded=(layer_name.lower() in ["gold", "serving"])):
+                    st.divider()
+                    st.markdown(f"#### 📁 {layer_name.upper()} LAYER ({len(tables_by_layer[layer_name])} Entities)")
+                    with st.container():
                         layer_tables = tables_by_layer[layer_name]
                         t_names = sorted([t.get("name") for t in layer_tables])
                         

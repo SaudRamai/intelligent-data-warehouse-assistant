@@ -949,7 +949,37 @@ def assemble_full_ddl(
     )
 
     # ── 5. Grants ───────────────────────────────────────────────────────────
-    grant_sql = "\n\n".join(filter(None, ai_grant_parts)) or "-- No GRANT statements generated."
+    raw_grant_sql = "\n\n".join(filter(None, ai_grant_parts)) or ""
+    
+    # Extract all CREATE ROLE statements to move them to the top
+    grant_stmts = [s.strip() for s in raw_grant_sql.split(";") if s.strip()]
+    create_roles = [
+        "CREATE ROLE IF NOT EXISTS DATA_VIEWER",
+        "CREATE ROLE IF NOT EXISTS DATA_PIPELINE_ROLE"
+    ]
+    other_grants = []
+    
+    for stmt in grant_stmts:
+        if re.search(r'^\s*CREATE\s+(?:OR\s+REPLACE\s+)?ROLE', stmt, re.IGNORECASE):
+            # Enforce IF NOT EXISTS so it doesn't fail if the role exists
+            clean_stmt = re.sub(r'CREATE\s+(?:OR\s+REPLACE\s+)?ROLE\s+(IF\s+NOT\s+EXISTS\s+)?', 'CREATE ROLE IF NOT EXISTS ', stmt, flags=re.IGNORECASE)
+            create_roles.append(clean_stmt)
+        else:
+            other_grants.append(stmt)
+            
+    # Deduplicate create_roles just in case
+    unique_create_roles = []
+    seen_roles = set()
+    for cr in create_roles:
+        # Extract role name roughly
+        match = re.search(r'CREATE\s+ROLE\s+IF\s+NOT\s+EXISTS\s+([a-zA-Z0-9_]+)', cr, re.IGNORECASE)
+        rname = match.group(1).upper() if match else cr.upper()
+        if rname not in seen_roles:
+            unique_create_roles.append(cr)
+            seen_roles.add(rname)
+            
+    final_grant_parts = [cr + ";" for cr in unique_create_roles] + [og + ";" for og in other_grants]
+    grant_sql = "\n".join(final_grant_parts) or "-- No GRANT statements generated."
 
     # ── 6. Transforms ───────────────────────────────────────────────────────
     transform_sql = "\n\n".join(filter(None, ai_transform_parts)) or "-- No transformation samples generated."

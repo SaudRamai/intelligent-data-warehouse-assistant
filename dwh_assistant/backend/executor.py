@@ -1095,6 +1095,7 @@ def execute_deployment(
         
         
         session.sql("BEGIN").collect()
+        skipped_count = 0
         for stmt in cleaned_statements:
             try:
                 session.sql(stmt).collect()

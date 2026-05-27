@@ -212,7 +212,7 @@ def safe_callback(status_callback, step, state, data=None):
         # Completely suppress background threading state update desynchronization warnings to preserve log cleanliness
         pass
 
-def run_step(session, step_name: str, requirements: dict, data_profile: dict, current_results: dict, model: str, status_callback=None, last_error=None, depth=0):
+def run_step(session, step_name: str, requirements: dict, data_profile: dict, current_results: dict, model: str, status_callback=None, last_error=None, depth=0, force_refresh=False):
     """Executes a single atomic step in the DWH generation pipeline synchronized per node_id."""
     with threading.Lock(): # Completely unshared zero-contention thread block
         safe_callback(status_callback, step_name, "running")
@@ -229,21 +229,22 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
         if "cortex_memory_cache" not in st.session_state:
             st.session_state["cortex_memory_cache"] = {}
             
-        if cache_hash in st.session_state["cortex_memory_cache"] and not last_error:
-            cached_out = st.session_state["cortex_memory_cache"][cache_hash]
-            print(f"\n[AI CACHE HIT] Memory cache loaded instantly for '{step_name}'")
-            safe_callback(status_callback, step_name, "done", cached_out)
-            return cached_out
-            
-        if cache_file.exists() and not last_error:
-            try:
-                with open(cache_file, "r", encoding="utf-8") as f:
-                    cached_out = json.load(f)
-                st.session_state["cortex_memory_cache"][cache_hash] = cached_out
-                print(f"\n[AI CACHE HIT] Disk cache loaded instantly for '{step_name}'")
+        if not force_refresh:
+            if cache_hash in st.session_state["cortex_memory_cache"] and not last_error:
+                cached_out = st.session_state["cortex_memory_cache"][cache_hash]
+                print(f"\n[AI CACHE HIT] Memory cache loaded instantly for '{step_name}'")
                 safe_callback(status_callback, step_name, "done", cached_out)
                 return cached_out
-            except Exception: pass
+                
+            if cache_file.exists() and not last_error:
+                try:
+                    with open(cache_file, "r", encoding="utf-8") as f:
+                        cached_out = json.load(f)
+                    st.session_state["cortex_memory_cache"][cache_hash] = cached_out
+                    print(f"\n[AI CACHE HIT] Disk cache loaded instantly for '{step_name}'")
+                    safe_callback(status_callback, step_name, "done", cached_out)
+                    return cached_out
+                except Exception: pass
 
         max_retries = 3
         current_error = last_error
@@ -477,7 +478,7 @@ def _add_ctx(ctx):
 
 # --- DERIVATIVE DETERMINISTIC GENERATORS ---
 
-def run_ddl_derivative(session, requirements, data_profile, results, model, status_callback):
+def run_ddl_derivative(session, requirements, data_profile, results, model, status_callback, force_refresh=False):
     """Generates DDL for ALL tables in the unified schema using deterministic parallel batches.
 
     Enhancement: Derives CREATE SCHEMA statements from the AI-generated
@@ -537,7 +538,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
         _add_ctx(ctx)
         batch_results = dict(results)  # inherit arch/schema context
         batch_results["schema_context"] = batch_info["schema_ctx"]
-        return run_step(session, "ddl_generation", requirements, data_profile, batch_results, model)
+        return run_step(session, "ddl_generation", requirements, data_profile, batch_results, model, force_refresh=force_refresh)
 
     with ThreadPoolExecutor(max_workers=min(4, len(layer_batches) or 1)) as executor:
         futures = {executor.submit(_run_ddl_batch, b): b for b in layer_batches}
@@ -557,7 +558,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
     )
     return assembled
 
-def run_parallel_schema(session, requirements, data_profile, results, model, status_callback):
+def run_parallel_schema(session, requirements, data_profile, results, model, status_callback, force_refresh=False):
     """Executes schema modeling in parallel batches to improve speed and prevent truncation."""
     all_tables = data_profile.get("tables", [])
     if not all_tables: return {"tables": [], "relationships": [], "mermaid_diagram": ""}
@@ -579,7 +580,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
         batch_profile = {"tables": batch}
         # Force the prompt to acknowledge this is a partial batch
         batch_reqs = {**requirements, "batch_context": f"Processing {len(batch)} of {len(all_tables)} tables."}
-        return run_step(session, "schema_modeling", batch_reqs, batch_profile, results, model)
+        return run_step(session, "schema_modeling", batch_reqs, batch_profile, results, model, force_refresh=force_refresh)
 
     with ThreadPoolExecutor(max_workers=min(4, len(batches) or 1)) as executor:
         future_to_batch = {executor.submit(_run_schema_batch, b): b for b in batches}
@@ -747,3 +748,20 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         err_wrapped = {"success": False, "error": str(e)}
         st.session_state["generation_results"] = err_wrapped
         return err_wrapped
+
+def run_single_module(session, module_key: str, requirements: dict, data_profile: dict, current_results: dict, model: str, force_refresh=False):
+    """Regenerate a single specific module without running the full DAG."""
+    ctx = _get_ctx()
+    _add_ctx(ctx)
+    if module_key == "architecture_strategy":
+        return run_step(session, "architecture_strategy", requirements, data_profile, current_results, model, force_refresh=force_refresh)
+    elif module_key == "schema_modeling":
+        return run_parallel_schema(session, requirements, data_profile, current_results, model, None, force_refresh=force_refresh)
+    elif module_key == "pipeline_design":
+        return run_step(session, "pipeline_design", requirements, data_profile, current_results, model, force_refresh=force_refresh)
+    elif module_key == "governance_security":
+        return run_step(session, "governance_security", requirements, data_profile, current_results, model, force_refresh=force_refresh)
+    elif module_key == "ddl_generation":
+        return run_ddl_derivative(session, requirements, data_profile, current_results, model, None, force_refresh=force_refresh)
+    else:
+        return run_step(session, module_key, requirements, data_profile, current_results, model, force_refresh=force_refresh)

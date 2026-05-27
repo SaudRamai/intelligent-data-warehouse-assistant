@@ -968,6 +968,46 @@ def main():
     # ADD THIS:
     repair_session_state_keys()  # Fix any key mismatches
 
+    def render_regenerate_button(label: str, module_key: str):
+        c_spacer, c_btn = st.columns([5, 1])
+        with c_btn:
+            if st.button(f"🔄 Regenerate", key=f"regen_{module_key}", help=f"Regenerate {label} independently via AI", use_container_width=True):
+                with st.spinner(f"Regenerating {label}..."):
+                    from dwh_assistant.backend.orchestrator import run_single_module
+                    model = st.session_state.get("selected_model", "claude-sonnet-4-6")
+                    res = run_single_module(
+                        active_session, 
+                        module_key, 
+                        st.session_state.get("requirements", {}), 
+                        st.session_state.get("data_profile", {}), 
+                        st.session_state.get("generation_results", {}).get("outputs", {}), 
+                        model,
+                        force_refresh=True
+                    )
+                    
+                    if "generation_results" not in st.session_state:
+                        st.session_state["generation_results"] = {"outputs": {}}
+                    if "outputs" not in st.session_state["generation_results"]:
+                        st.session_state["generation_results"]["outputs"] = {}
+                        
+                    st.session_state["generation_results"]["outputs"][module_key] = res
+                    st.session_state[module_key] = res
+                    
+                    if module_key == "schema_modeling":
+                        st.session_state["schema"] = res
+                        st.session_state["schema_design"] = res
+                    elif module_key == "architecture_strategy":
+                        st.session_state["architecture"] = res
+                        st.session_state["architecture_selection"] = res
+                    elif module_key == "pipeline_design":
+                        st.session_state["pipeline"] = res
+                    elif module_key == "governance_security":
+                        st.session_state["governance"] = res
+                    elif module_key == "ddl_generation":
+                        st.session_state["artifacts"] = res
+                        
+                    st.rerun()
+
     def render_tab_placeholder(label, data):
         """Shows a premium skeleton state if data is missing but generation is running."""
         is_running = st.session_state.get("generation_running", False)
@@ -1242,6 +1282,7 @@ def main():
     tabs = st.tabs(["Architecture", "Schema", "Pipeline", "Governance", "Artifacts", "History"])
     
     with tabs[0]:
+        render_regenerate_button("Architecture", "architecture_strategy")
         if not blueprint:
             st.warning("Architectural metadata is missing. Please ensure the 'Architecture Strategy Selection' step in AI Generation completed successfully.")
             if st.button("Return to AI Generation"):
@@ -1405,6 +1446,7 @@ def main():
         )
 
     with tabs[1]:
+        render_regenerate_button("Schema", "schema_modeling")
         st.markdown("### Industrial Schema Design")
         st.markdown("""
             <div style="background: #F0F9FF; border-left: 4px solid #0284c7; padding: 12px 16px; border-radius: 6px; margin-bottom: 20px;">
@@ -1611,6 +1653,7 @@ def main():
 
 
     with tabs[2]:
+        render_regenerate_button("Pipeline", "pipeline_design")
         if not render_tab_placeholder("Transformation Pipelines", pipeline):
             # 1. Metric Overview
             tasks = pipeline.get("tasks", [])
@@ -1654,6 +1697,7 @@ def main():
         
 
     with tabs[3]:
+        render_regenerate_button("Governance", "governance_security")
         if not render_tab_placeholder("Governance & Security", gov):
             # 1. Metric Overview
             g1, g2, g3 = st.columns(3)
@@ -1717,6 +1761,7 @@ def main():
                     """, unsafe_allow_html=True)
 
     with tabs[4]:
+        render_regenerate_button("Artifacts", "ddl_generation")
         if not render_tab_placeholder("Artifacts & Deployment", artifacts):
             st.markdown("### Industrial Artifacts & Deployment")
             

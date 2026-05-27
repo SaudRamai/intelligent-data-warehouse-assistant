@@ -896,6 +896,12 @@ def assemble_full_ddl(
     # Strip any lingering SCHEMA creation statements in AI output (we emit ours deterministically)
     raw_ddl_text = re.sub(r'CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+\S+\s*;?', '', raw_ddl_text, flags=re.IGNORECASE)
 
+    # Strip FOREIGN KEY constraints to prevent deployment failures on missing/hallucinated AI dimensions
+    fk_pattern = r'(?i),\s*(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\([^)]+\)\s*REFERENCES\s+[a-zA-Z0-9_.\"\'\[\]]+(?:\s*\([^)]+\))?(?:\s*ON\s+(?:DELETE|UPDATE)\s+(?:CASCADE|SET\s+NULL|SET\s+DEFAULT|RESTRICT|NO\s+ACTION))?'
+    raw_ddl_text = re.sub(fk_pattern, '', raw_ddl_text)
+    # Catch any remaining trailing commas before a closing parenthesis (caused by stripping the last column)
+    raw_ddl_text = re.sub(r',\s*\)', '\n)', raw_ddl_text)
+
     # ── 3. Split, deduplicate, and order statements ──────────────────────────
     stmts_raw = [s.strip() for s in raw_ddl_text.split(";") if s.strip()]
 

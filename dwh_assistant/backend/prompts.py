@@ -142,7 +142,13 @@ REASON THROUGH:
 - What trade-offs matter most for this case?
 - Which paradigm fits data relationships?
 
-NO DEFAULTS. Pick best fit for THIS dataset.
+CRITICAL EVALUATION RULES:
+1. If `architecture_preference` or `modeling_preference` is "AI Recommendation", you MUST independently evaluate the best fit based on the data.
+2. DO NOT default to Medallion Architecture or Galaxy Schema simply because they are advanced. You MUST prove why a simpler or different architecture (e.g., Star Schema, Cloud DWH, Three-tier) isn't a better fit.
+3. Compare multiple candidate architectures and schema strategies.
+4. Justify the final selection with clear reasoning tied directly to workload characteristics (latency, scalability, governance, transformation complexity, ingestion patterns, analytical use cases).
+5. Generate adaptive, context-aware outputs without any hardcoded architectural bias or forced template mapping.
+6. VOLUME CONSTRAINTS: If Data Volume is <1GB or 1-10GB, you are STRICTLY FORBIDDEN from selecting Medallion Architecture or Lakehouse Architecture, as they are severe overkill for small datasets. You must default to a simpler architecture like Cloud Data Warehouse or Three-tier.
 
 MERMAID DIAGRAM STRUCTURE GUIDE:
 You must generate a "mermaid_diagram" that visualizes your chosen architecture using a `flowchart LR` format.

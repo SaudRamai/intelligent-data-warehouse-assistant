@@ -8,7 +8,7 @@ import re
 import pandas as pd
 from typing import Dict, Any, List, Optional
 from snowflake.snowpark import Session
-from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
 from dwh_assistant.backend.snowflake import log_deployment, TWO_PARAM_ONLY_MODELS
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -156,7 +156,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 payload_str = re.sub(pattern, repl, payload_str)
                 
             unescaped = unescape_json_string(payload_str)
-            from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+            from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
             try:
                 cleaned = clean_json_string(unescaped)
                 repaired = fix_truncated_json(cleaned)
@@ -194,7 +194,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 repair_text = re.sub(pattern, repl, repair_text)
                 
             unescaped = unescape_json_string(repair_text)
-            from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+            from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
             try:
                 cleaned = clean_json_string(unescaped)
                 parsed = json.loads(cleaned)
@@ -259,7 +259,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
 
             # Highly robust workflow: unescape double encoded stringified JSON, then use clean_json_string
             # This guarantees that multiline Mermaid strings with embedded newlines are perfectly escaped
-            from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+            from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
             
             cur_cand = cleaned_nodes
             for _ in range(4):
@@ -305,7 +305,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
         break
 
     # Final absolute fallback: let's try clean_json_string on the full clean_fences text
-    from dwh_assistant.backend.validator import clean_json_string, fix_truncated_json
+    from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
     clean_full = clean_json_string(clean_fences(text))
     try:
         parsed = json.loads(clean_full)

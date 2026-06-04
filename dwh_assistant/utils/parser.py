@@ -4,90 +4,89 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 
 def clean_json_string(s: str) -> str:
-    """Surgically repairs common JSON malformations and extracts JSON from noise."""
+    """
+    Surgically repairs common JSON malformations from LLM outputs.
+    """
     if not s: return s
     
-    # 1. Strip markdown wrappers
+    # 0. Strip markdown code fences (```json ... ```)
     s = re.sub(r'^```(?:json)?\s*', '', s.strip(), flags=re.IGNORECASE)
     s = re.sub(r'\s*```$', '', s)
     
-    # 2. Extract first { or [ to last } or ] to ignore conversational noise
-    start_brace = s.find('{')
-    start_bracket = s.find('[')
-    
-    start_idx = -1
-    if start_brace != -1 and (start_bracket == -1 or start_brace < start_bracket):
-        start_idx = start_brace
-    elif start_bracket != -1:
-        start_idx = start_bracket
-        
-    if start_idx != -1:
-        end_brace = s.rfind('}')
-        end_bracket = s.rfind(']')
-        end_idx = max(end_brace, end_bracket)
-        if end_idx != -1 and end_idx > start_idx:
-            s = s[start_idx:end_idx+1]
-
-    # 3. Clean common issues
+    # 1. Remove all types of comments first (including inline and block)
     s = re.sub(r'//.*?\n|/\*.*?\*/', '', s, flags=re.DOTALL)
     s = re.sub(r'^\s*#.*$', '', s, flags=re.MULTILINE)
+    
+    # 2. Fix single quotes used as delimiters (common with Mixtral/Llama)
+    # Only if not preceded by a letter (to avoid breaking possessives in text)
+    # Improved: Use non-greedy match and avoid matching escaped quotes
     s = re.sub(r"(?<!\w)\'(\w+)\'\s*:", r'"\1":', s)
-    s = re.sub(r'([\{\,]\s*)([a-zA-Z0-9_]+)\s*:', r'\1"\2":', s)
-    s = re.sub(r":\s*\'([^'\\]*(?:\\.[^'\\]*)*)\'", r': "\1"', s, flags=re.DOTALL)
+    # Only replace if the entire value is wrapped in single quotes and contains no internal unescaped single quotes
+    s = re.sub(r":\s*\'([^'\\]*(?:\\.[^'\\]*)*)\'", r': "\1"', s)
+    
+    # 3. Improved comma injector: 
+    # This looks for a closing marker (quote, number, ], }) 
+    # followed by whitespace/newlines and then an opening quote
     s = re.sub(r'([\"|0-9|e|\]|\}])\s*\n\s*\"', r'\1,\n"', s)
+    
+    # BUG02 FIX: Replace the entire rstrip block with regex-based trailing comma removal
+    # Step 1: Remove only a trailing comma that precedes the final closing structure
     s = re.sub(r',(\s*[}\]])$', r'\1', s.strip())
+    # Step 2: Remove standalone trailing comma at very end (no structure after it)
     s = re.sub(r',\s*$', '', s)
+    # Do NOT strip closing braces/brackets — let fix_truncated_json handle structure
+    
+    # 5. Fix illegal escapes (JSON only allows \", \\, \/, \b, \f, \n, \r, \t, \u)
+    # Common AI mistake: \' (single quote) - replace with just '
     s = s.replace("\\'", "'")
+    
+    # 4. JSON Escape Sanitizer: Fix illegal single backslashes (common in AI SQL)
+    # Improved: Match any backslash that isn't part of a valid JSON escape sequence
+    # Valid escapes: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
+    # BUG 9: Expanded lookahead for SQL regex characters (\d, \w, \S, etc)
     s = re.sub(r'\\(?![\\\"\/bfnrtuwWdDsSpP\(\)\[\]\{\}\.\*\+\?\^\$\|])', r'\\\\', s)
-    
-    # 4. Escape literal newlines inside JSON strings (Crucial for multiline Mermaid strings)
-    res = []
-    in_string = False
-    escape = False
-    for char in s:
-        if escape:
-            res.append(char)
-            escape = False
-            continue
-        if char == '\\':
-            res.append(char)
-            escape = True
-            continue
-        if char == '"':
-            in_string = not in_string
-            res.append(char)
-            continue
-        if in_string and char == '\n':
-            res.append('\\n')
-        elif in_string and char == '\r':
-            pass
-        else:
-            res.append(char)
-    s = "".join(res)
-    
+
     return s.strip()
 
 def fix_truncated_json(s: str) -> str:
-    """Attempts to close unclosed JSON structures and preserves truncated strings."""
-    # Standard bracket balancing and natural string closure
+    """
+    Attempts to close unclosed JSON structures (braces, brackets, quotes).
+    """
     stack = []
     in_string = False
     escape = False
     fixed = ""
-    for char in s:
-        if escape: fixed += char; escape = False; continue
-        if char == '\\': fixed += char; escape = True; continue
-        if char == '"': in_string = not in_string; fixed += char; continue
+    
+    for i, char in enumerate(s):
+        if escape:
+            fixed += char
+            escape = False
+            continue
+        if char == '\\':
+            fixed += char
+            escape = True
+            continue
+        if char == '"':
+            in_string = not in_string
+            fixed += char
+            continue
+        
         if not in_string:
             if char == '{': stack.append('}')
             elif char == '[': stack.append(']')
-            elif char == '}': 
+            elif char == '}':
                 if stack and stack[-1] == '}': stack.pop()
             elif char == ']':
                 if stack and stack[-1] == ']': stack.pop()
+        
         fixed += char
-    if in_string: fixed += '"'
-    while stack: fixed += stack.pop()
+    
+    if in_string:
+        fixed += '"'
+    
+    while stack:
+        fixed += stack.pop()
+        
     return fixed
 
 def heal_mermaid_flow(mermaid: str) -> str:
@@ -961,3 +960,164 @@ def validate_modeling_rules(schema: Dict[str, Any], paradigm: str = "STAR_SCHEMA
                         pass
                         
     return errors
+
+def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
+    """
+    Highly robust multi-strategy JSON extractor for Cortex responses.
+    Handles nested wrappers, escaped SQL strings, and mid-stream truncation.
+    """
+    if not raw: return {}
+    decoded = {}
+
+    def extract_inner(raw_str: str) -> str:
+        """Extract inner JSON string from Cortex wrapper using json.loads — no regex."""
+        try:
+            # Handle potential markdown wrapper before parsing outer
+            s = raw_str.strip()
+            s = re.sub(r'^```(?:json)?\s*', '', s, flags=re.IGNORECASE)
+            s = re.sub(r'\s*```$', '', s)
+            
+            outer = json.loads(s, strict=False)
+            if isinstance(outer, dict):
+                if "choices" in outer and len(outer["choices"]) > 0:
+                    choice = outer["choices"][0]
+                    msg = choice.get("messages") or choice.get("message") or {}
+                else:
+                    msg = outer.get("messages") or outer.get("message") or outer
+                
+                if isinstance(msg, str): return msg
+                if isinstance(msg, dict):
+                    c = msg.get("content", "")
+                    if isinstance(c, list):
+                        return "".join(b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text")
+                    return c or ""
+        except: pass
+        return ""
+
+    def unbox(obj):
+        if isinstance(obj, list) and len(obj) > 0:
+            return unbox(obj[0])
+        if not isinstance(obj, dict): return obj
+        
+        # Check for standard Cortex/OpenAI wrappers
+        if isinstance(obj, dict):
+            # Check for 'choices' envelope
+            if "choices" in obj and len(obj["choices"]) > 0:
+                choice = obj["choices"][0]
+                msg = choice.get("messages") or choice.get("message") or {}
+                content = ""
+                if isinstance(msg, str): content = msg
+                elif isinstance(msg, dict):
+                    content = msg.get("content", "")
+                    if isinstance(content, list):
+                        content = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+                
+                if content: 
+                    # RECURSIVE UNWRAP: In case of multiple envelopes
+                    inner_parsed = safe_json_parse(content, task_type)
+                    if isinstance(inner_parsed, dict) and inner_parsed:
+                        return inner_parsed
+            
+            # Check for direct 'message' or 'content' keys
+            if "message" in obj and isinstance(obj["message"], dict):
+                return unbox(obj["message"])
+            if "content" in obj and isinstance(obj["content"], str):
+                return safe_json_parse(obj["content"], task_type)
+                
+        return obj
+
+    if isinstance(raw, dict): 
+        unboxed = unbox(raw)
+        if isinstance(unboxed, dict): return unboxed
+        if isinstance(unboxed, str): raw = unboxed
+    
+    if isinstance(raw, list) and len(raw) > 0: 
+        unboxed = unbox(raw[0])
+        if isinstance(unboxed, dict): return unboxed
+        if isinstance(unboxed, str): raw = unboxed
+        
+    if not isinstance(raw, str): return {}
+
+    # 1. TASK-SPECIFIC SCRAPING (SQL)
+    if task_type == "ddl_generation":
+        sql_blocks = re.findall(r'```(?:sql)?\s*(.*?)\s*```', raw, re.DOTALL | re.IGNORECASE)
+        # Filter out blocks that are clearly JSON
+        sql_blocks = [b for b in sql_blocks if not b.strip().startswith("{")]
+        if sql_blocks:
+            return {
+                "ddl_sql": sql_blocks[0].strip(),
+                "grant_sql": sql_blocks[1].strip() if len(sql_blocks) > 1 else "",
+                "transform_sql": sql_blocks[2].strip() if len(sql_blocks) > 2 else "-- No transforms required"
+            }
+
+    # STRATEGY 1: Full outer parse + unbox (handles complete responses)
+    try:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start != -1 and end != -1:
+            decoded = json.loads(raw[start:end+1], strict=False)
+            result = unbox(decoded)
+            if result is not decoded: return result
+            return result
+    except Exception as e:
+        print(f"[DEBUG] Strategy 1 failed: {e}")
+
+    # STRATEGY 2: Extract inner string via json.loads (handles SQL escapes correctly)
+    inner = extract_inner(raw)
+    if inner:
+        inner = re.sub(r'^```(?:json)?\s*', '', inner.strip(), flags=re.IGNORECASE)
+        inner = re.sub(r'\s*```$', '', inner)
+        
+        brace_start = inner.find("{")
+        if brace_start != -1:
+            inner_json = inner[brace_start:]
+            try:
+                decoded = json.loads(inner_json, strict=False)
+                return decoded
+            except:
+                try:
+                    fixed = fix_truncated_json(inner_json)
+                    return json.loads(fixed, strict=False)
+                except Exception as fe:
+                    print(f"[DEBUG] Strategy 2 repair failed: {fe}")
+
+    # STRATEGY 3: Structural repair on raw (Last resort)
+    start = raw.find("{")
+    if start != -1:
+        try:
+            fixed = fix_truncated_json(raw[start:])
+            decoded = json.loads(fixed, strict=False)
+            return unbox(decoded)
+        except: pass
+
+    # ALIAS MAPPING for downstream stability
+    if isinstance(decoded, dict):
+        aliases = {
+            "type": "architecture_type", "strategy": "architecture_strategy",
+            "diagram": "mermaid_diagram", "mermaid": "mermaid_diagram",
+            "pillars": "strategic_pillars", "design": "design_summary", "flow": "data_flow",
+            "masking_type": "type", "masking": "masking_policies",
+            "rbac": "roles", "privileges": "grants",
+            "summary_text": "summary", "docs": "documentation"
+        }
+        
+        # Deep Alias Injection
+        def inject_aliases(obj):
+            if not isinstance(obj, dict): return
+            new_keys = {}
+            for k, v in obj.items():
+                if k in aliases and aliases[k] not in obj:
+                    new_keys[aliases[k]] = v
+                if isinstance(v, dict): inject_aliases(v)
+                elif isinstance(v, list):
+                    for item in v: 
+                        if isinstance(item, dict): inject_aliases(item)
+            obj.update(new_keys)
+
+        inject_aliases(decoded)
+        return decoded
+
+    return {}
+
+# These are now imported from snowflake_conn
+

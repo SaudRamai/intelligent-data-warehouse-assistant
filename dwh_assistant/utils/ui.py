@@ -1,17 +1,14 @@
 import streamlit as st
 import uuid
 from dwh_assistant.backend.snowflake import get_available_cortex_models, ensure_session
+from dwh_assistant.components.state_config import get_default_state, STATE_PREFIXES_TO_CLEAN, STATE_EXACT_KEYS_TO_CLEAN
+from dwh_assistant.components.styles import PREMIUM_CSS
 
 # --- 1. SESSION STATE MANAGEMENT ---
 
 def init_session_state():
     """Initializes all session state keys for the DWH Assistant."""
-    defaults = {
-        "snowflake_session": None, "snowflake_connected": False, "requirements": {},
-        "form_complete": False, "data_profile": {}, "profile_source": None,
-        "selected_model": "claude-sonnet-4-6", "generation_running": False,
-        "generation_results": {}, "project_id": str(uuid.uuid4())
-    }
+    defaults = get_default_state()
     for key, value in defaults.items():
         if key not in st.session_state: st.session_state[key] = value
 
@@ -27,23 +24,8 @@ def reset_project_state():
     
     # Clean all generation artifacts, UI sliders, toggles, editors and cached keys
     keys_to_delete = []
-    prefix_list = [
-        "flow_state_", "mini_erd_", "dag_state_",
-        "editor_", "toggle_", "slider_", "sel_"
-    ]
-    exact_keys = [
-        "architecture_selection", "architecture", "architecture_strategy",
-        "schema_modeling", "schema_design", "schema", "schema_context",
-        "pipeline_design", "pipeline", "governance_security", "governance",
-        "ddl_generation", "artifacts", "documentation_design", "final_blueprint", "blueprint",
-        "history", "edited_schema_creation", "edited_ddl_sql", "edited_grant_sql", "edited_transform_sql",
-        "artifacts_original_payload", "profile_source", "architecture_strategy_raw",
-        "schema_modeling_raw", "metadata_analysis_raw", "relationship_design_raw",
-        "pipeline_design_raw", "governance_security_raw", "ddl_generation_raw",
-        "final_blueprint_raw", "history_raw", "cortex_memory_cache"
-    ]
     for k in list(st.session_state.keys()):
-        if any(p in k for p in prefix_list) or k in exact_keys:
+        if any(p in k for p in STATE_PREFIXES_TO_CLEAN) or k in STATE_EXACT_KEYS_TO_CLEAN:
             keys_to_delete.append(k)
             
     for k in keys_to_delete:
@@ -53,61 +35,7 @@ def reset_project_state():
 
 def apply_premium_style():
     """Applies the unified, glass-morphism aesthetic to the current page."""
-    st.markdown("""
-        <style>
-            @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
-            html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-            h1, h2, h3, h4, h5, h6 { color: #002244 !important; }
-            .glass-card {
-                background: rgba(0, 34, 68, 0.8); /* Navy Blue Glass */
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 16px;
-                padding: 24px;
-                box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
-                color: #FFFFFF; /* White text for dark cards */
-            }
-            .glass-card-white {
-                background: rgba(255, 255, 255, 0.95);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(0, 34, 68, 0.1);
-                border-radius: 16px;
-                padding: 24px;
-                box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.1);
-                color: #002244; /* Navy Blue text for white cards */
-            }
-            .header-banner {
-                background: rgba(0, 34, 68, 0.9); /* Deep Navy Glass */
-                backdrop-filter: blur(15px);
-                border: 1px solid rgba(255, 255, 255, 0.15);
-                border-radius: 20px;
-                padding: 50px 40px;
-                margin-bottom: 40px;
-                box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
-            }
-            .header-banner, .glass-card, .glass-card-white {
-                position: relative;
-                overflow: hidden;
-            }
-            .header-banner::after, .glass-card::after, .glass-card-white::after {
-                content: "";
-                position: absolute;
-                top: -50%;
-                left: -60%;
-                width: 20%;
-                height: 200%;
-                background: rgba(255, 255, 255, 0.1);
-                transform: rotate(30deg);
-                animation: shine 4s infinite;
-            }
-            @keyframes shine {
-                0% { left: -60%; }
-                20% { left: 120%; }
-                100% { left: 120%; }
-            }
-            .accent-text { color: #38BDF8; font-weight: 600; }
-        </style>
-    """, unsafe_allow_html=True)
+    st.markdown(PREMIUM_CSS, unsafe_allow_html=True)
 
 def render_page_header(title: str, subtitle: str, highlight: str = ""):
     """Renders a unified header with the first word (title) in white."""

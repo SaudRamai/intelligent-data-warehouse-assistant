@@ -23,7 +23,7 @@ import dwh_assistant.backend.executor as exec_mod
 try: importlib.reload(exec_mod)
 except Exception: pass
 from dwh_assistant.backend.executor import call_cortex, call_cortex_with_continuation
-from dwh_assistant.backend.validator import validate_step_output, heal_mermaid_diagram
+from dwh_assistant.utils.parser import validate_step_output, heal_mermaid_diagram
 from dwh_assistant.backend.prompts import build_prompt
 
 # ═══════════════════════════════════════════════
@@ -647,7 +647,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
                         if target_col.lower() != canonical_pk.lower():
                             c["ref"] = f"{target_table}.{canonical_pk}"
     # Synthesize the complete visual ERD diagram from the consolidated tables list
-    from dwh_assistant.backend.validator import synthesize_erd_from_tables
+    from dwh_assistant.utils.parser import synthesize_erd_from_tables
     merged_results["mermaid_diagram"] = synthesize_erd_from_tables(tables)
     print(f"[AI ARCHITECT LOG] Final consolidated ERD diagram synthesized for 'schema_modeling'. Length: {len(merged_results['mermaid_diagram'])} chars.\n")
     

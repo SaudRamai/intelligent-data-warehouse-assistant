@@ -4,11 +4,6 @@ import sys
 import os
 from pathlib import Path
 
-# Fix for ModuleNotFoundError when running from inside the package
-root_path = str(Path(__file__).parent)
-if root_path not in sys.path:
-    sys.path.append(root_path)
-
 import logging
 import warnings
 
@@ -46,14 +41,14 @@ from dwh_assistant.utils.ui import apply_premium_style, render_ai_sidebar, init_
 from dwh_assistant.backend.snowflake import get_snowflake_session, check_connection, ensure_session, get_available_cortex_models
 
 # Page Config
-st.set_page_config(page_title="Industrial DWH Assistant", layout="wide", page_icon="DWH")
+st.set_page_config(page_title="Industrial DWH Assistant", layout="wide", page_icon="🏭")
 init_session_state()
 apply_premium_style()
 
 # App Navigation & Auth
 def main():
     # Sidebar Navigation and Connectivity Check
-    selected_model, active_session = render_ai_sidebar()
+    selected_model, active_session = render_ai_sidebar(show_model_selector=False, show_logo=True)
     
     # Generate Project ID if not exists
     if not st.session_state["project_id"]:
@@ -87,50 +82,82 @@ def main():
     # 3. Main Landing UI
     render_page_header("Industrial", "Autonomous AI Architect for Snowflake.", "DWH Assistant")
     
-    st.markdown('<div style="text-align: left; margin-top: 10px;">', unsafe_allow_html=True)
-    
-    # 4. Project Persistence Layer
-    if st.session_state.get("snowflake_connected"):
-        st.divider()
-        st.markdown("### Project Management")
+    st.markdown("<br>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('''
+            <div class="glass-card-white" style="height: 100%;">
+                <h3 style="margin-top: 0; color: #002244;">🤖 AI-Driven Design</h3>
+                <p style="color: #64748B; font-size: 1.1rem;">Automated, intelligent data warehouse architecture specifically tailored for your Snowflake environment.</p>
+            </div>
+        ''', unsafe_allow_html=True)
+    with c2:
+        st.markdown('''
+            <div class="glass-card-white" style="height: 100%;">
+                <h3 style="margin-top: 0; color: #002244;">⚡ End-to-End DDL</h3>
+                <p style="color: #64748B; font-size: 1.1rem;">Instantly generates ready-to-deploy schema structures, tables, and Snowflake tasks.</p>
+            </div>
+        ''', unsafe_allow_html=True)
+    with c3:
+        st.markdown('''
+            <div class="glass-card-white" style="height: 100%;">
+                <h3 style="margin-top: 0; color: #002244;">🛡️ Secure & Governed</h3>
+                <p style="color: #64748B; font-size: 1.1rem;">Built-in best practices for RBAC, dynamic masking policies, and robust data lineage.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        from dwh_assistant.backend.snowflake import get_all_projects, load_project_by_id
-        projects = get_all_projects(st.session_state["snowflake_session"])
-        
-        if projects:
-            p_list = [f"{p['ID']} ({p['STATUS']} - {p['CREATED_AT'].strftime('%Y-%m-%d')})" for p in projects]
-            selected_p = st.selectbox("Resume Existing Project", ["-- Select a Project --"] + p_list)
-            
-            if selected_p != "-- Select a Project --":
-                p_id = selected_p.split(" ")[0]
-                if st.button("LOAD PROJECT"):
-                    with st.spinner("Fetching from ARCHITECTURE_STORE..."):
-                        p_data = load_project_by_id(st.session_state["snowflake_session"], p_id)
-                        if p_data:
-                            # Map to session state
-                            for k, v in p_data.items():
-                                st.session_state[k] = v
-                            st.session_state["form_complete"] = True
-                            st.success(f"Project {p_id} Loaded Successfully!")
-                            st.rerun()
-        else:
-            st.info("No saved projects found in Snowflake. Start a new one below.")
-
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.divider()
+    st.markdown("### Project Actions")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    if not st.session_state["form_complete"]:
-        if st.button("Start New Project", type="primary"):
-            reset_project_state()
-            st.switch_page("pages/1_Intake_Form.py")
-    else:
-        st.info(f"Active Project: `{st.session_state['project_id']}`")
-        c1, c2 = st.columns(2)
-        if c1.button("Continue Current Design", use_container_width=True):
-            st.switch_page("pages/4_Design_Center.py")
-        if c2.button("Start Fresh Project", use_container_width=True):
-            reset_project_state()
-            st.switch_page("pages/1_Intake_Form.py")
-    st.markdown('</div>', unsafe_allow_html=True)
+    action_col1, action_col2 = st.columns(2)
+    
+    with action_col1:
+        with st.container(border=True):
+            st.markdown("#### New Project")
+            st.markdown("<p style='color: #64748B;'>Start building a new Data Warehouse architecture from scratch or continue your active session.</p>", unsafe_allow_html=True)
+            
+            if not st.session_state["form_complete"]:
+                if st.button("Start New Project", type="primary", use_container_width=True):
+                    reset_project_state()
+                    st.switch_page("pages/1_Intake_Form.py")
+            else:
+                st.info(f"Active Project: `{st.session_state['project_id']}`")
+                if st.button("Continue Current Design", type="primary", use_container_width=True):
+                    st.switch_page("pages/4_Design_Center.py")
+                if st.button("Discard & Start Fresh", use_container_width=True):
+                    reset_project_state()
+                    st.switch_page("pages/1_Intake_Form.py")
+
+    with action_col2:
+        with st.container(border=True):
+            st.markdown("#### Load Saved Project")
+            st.markdown("<p style='color: #64748B;'>Resume a previously saved architectural design from your Snowflake storage.</p>", unsafe_allow_html=True)
+            
+            if st.session_state.get("snowflake_connected"):
+                from dwh_assistant.backend.snowflake import get_all_projects, load_project_by_id
+                projects = get_all_projects(st.session_state["snowflake_session"])
+                
+                if projects:
+                    p_list = [f"{p['ID']} ({p['STATUS']} - {p['CREATED_AT'].strftime('%Y-%m-%d')})" for p in projects]
+                    selected_p = st.selectbox("Select Project to Resume", ["-- Select a Project --"] + p_list, label_visibility="collapsed")
+                    
+                    if selected_p != "-- Select a Project --":
+                        p_id = selected_p.split(" ")[0]
+                        if st.button("LOAD PROJECT", use_container_width=True):
+                            with st.spinner("Fetching from ARCHITECTURE_STORE..."):
+                                p_data = load_project_by_id(st.session_state["snowflake_session"], p_id)
+                                if p_data:
+                                    for k, v in p_data.items():
+                                        st.session_state[k] = v
+                                    st.session_state["form_complete"] = True
+                                    st.success(f"Project {p_id} Loaded!")
+                                    st.rerun()
+                else:
+                    st.info("No saved projects found in your Snowflake account.")
+            else:
+                st.warning("Connect to Snowflake using the sidebar to access your saved projects.")
 
 if __name__ == "__main__":
     main()

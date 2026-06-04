@@ -10,7 +10,7 @@ apply_premium_style()
 
 def main():
     # Sidebar for consistent model selection
-    selected_model, active_session = render_ai_sidebar()
+    selected_model, active_session = render_ai_sidebar(show_model_selector=False)
     st.divider()
 
     if not st.session_state.get("form_complete"):

@@ -372,8 +372,6 @@ def clean_mermaid_flowchart(code: str) -> str:
 
     return "\n".join(cleaned)
 
-# --- Mermaid ERD Syntax & Formatting Helpers ---
-
 _SAFE_ID = re.compile(r'[^A-Z0-9_]')
 
 def _eid(raw: str) -> str:

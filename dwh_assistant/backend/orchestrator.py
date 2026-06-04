@@ -25,10 +25,7 @@ except Exception: pass
 from dwh_assistant.backend.executor import call_cortex, call_cortex_with_continuation
 from dwh_assistant.utils.parser import validate_step_output, heal_mermaid_diagram
 from dwh_assistant.backend.prompts import build_prompt
-
-# ═══════════════════════════════════════════════
 # METADATA-DRIVEN SCHEMA CONTEXT BUILDER
-# ═══════════════════════════════════════════════
 
 def layer_to_schema_name(layer_name: str) -> str:
     """
@@ -220,8 +217,6 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
         # Strip redundant metadata to ensure clean serialization and minimize token payload
         stripped_results = {k: v for k, v in (current_results or {}).items() if not k.endswith("_raw")}
         base_prompt = build_prompt(step_name, requirements, data_profile, stripped_results)
-        
-        # --- TRANSPARENT CACHE INTERCEPTOR ---
         import hashlib
         cache_hash = hashlib.md5(f"{step_name}_{model}_{base_prompt}".encode('utf-8')).hexdigest()
         cache_file = CORTEX_CACHE_DIR / f"{cache_hash}.json"
@@ -458,8 +453,6 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                 
         return {"success": False, "error": f"Max retries exceeded for {step_name}"}
 
-# --- STREAMLIT CONTEXT HELPERS ---
-
 try:
     from streamlit.runtime.scriptrunner import add_script_run_context, get_script_run_ctx
 except ImportError:
@@ -475,8 +468,6 @@ def _get_ctx():
 def _add_ctx(ctx):
     if ctx:
         add_script_run_context(ctx)
-
-# --- DERIVATIVE DETERMINISTIC GENERATORS ---
 
 def run_ddl_derivative(session, requirements, data_profile, results, model, status_callback, force_refresh=False):
     """Generates DDL for ALL tables in the unified schema using deterministic parallel batches.
@@ -588,8 +579,6 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
             res = future.result()
             if isinstance(res, dict):
                 merged_results["tables"].extend(res.get("tables", []))
-                
-    # --- POST-MERGE TABLE DEDUPLICATION & CONSOLIDATION ---
     raw_tables = merged_results["tables"]
     unique_tables = {}
     for t in raw_tables:
@@ -621,8 +610,6 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
             unique_tables[compare_key] = t
             
     merged_results["tables"] = list(unique_tables.values())
-
-    # --- POST-MERGE FK RECONCILIATION ---
     tables = merged_results["tables"]
     pk_index = {}
     for t in tables:
@@ -653,8 +640,6 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
     
     return merged_results
 
-# --- MAIN ORCHESTRATOR ---
-
 def run_all(session, requirements: dict, data_profile: dict, model: str, status_callback=None, initial_results: dict = None):
     """
     Orchestrates the UNIFIED 3-PHASE generation flow:
@@ -666,15 +651,11 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
     results = initial_results or {}
     try:
         print(f"\n[DEPENDENCY ORCHESTRATOR] Starting DAG Execution")
-        
-        # --- 1. ARCHITECTURE (Sequential Root) ---
         print("\n--- PHASE 1: ARCHITECTURE ---")
         arch_res = run_step(session, "architecture_strategy", requirements, data_profile, results, model, status_callback)
         if not arch_res.get("architecture_type"): return {"success": False, "error": "Architecture failed"}
         results["architecture_strategy"] = arch_res
         st.session_state["generation_results"] = results
-
-        # --- 2. SCHEMA + METADATA (Parallel) ---
         print("\n--- PHASE 2: SCHEMA + METADATA (Parallel) ---")
         ctx = _get_ctx()
         with ThreadPoolExecutor(max_workers=2) as executor:
@@ -688,8 +669,6 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         st.session_state["architecture_strategy"] = results.get("architecture_strategy")
         st.session_state["schema_modeling"] = results.get("schema_modeling")
         st.session_state["metadata_analysis"] = results.get("metadata_analysis")
-
-        # --- 3. RELATIONSHIPS + PIPELINE + GOVERNANCE (Parallel Tier) ---
         print("\n--- PHASE 3: RELATIONSHIPS + PIPELINE + GOVERNANCE (Parallel) ---")
         with ThreadPoolExecutor(max_workers=3) as executor:
             fut_rel = executor.submit(lambda _ctx=ctx: (_add_ctx(_ctx), run_step(session, "relationship_design", requirements, data_profile, results, model, status_callback))[1])
@@ -704,8 +683,6 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         st.session_state["relationship_design"] = results.get("relationship_design")
         st.session_state["pipeline_design"] = results.get("pipeline_design")
         st.session_state["governance_security"] = results.get("governance_security")
-
-        # --- 4. DDL GENERATION (Sequential Dependency) ---
         print("\n--- PHASE 4: DDL GENERATION ---")
         ddl_res = run_ddl_derivative(session, requirements, data_profile, results, model, status_callback)
         results["ddl_generation"] = ddl_res
@@ -713,8 +690,6 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
         if "schema_context" in results:
             st.session_state["schema_context"] = results["schema_context"]
         st.session_state["generation_results"] = results
-
-        # --- 5. FINAL BLUEPRINT + HISTORY (Parallel End) ---
         print("\n--- PHASE 5: FINAL BLUEPRINT + HISTORY ---")
         with ThreadPoolExecutor(max_workers=2) as executor:
             fut_final = executor.submit(lambda _ctx=ctx: (_add_ctx(_ctx), run_step(session, "final_blueprint", requirements, data_profile, results, model, status_callback))[1])
@@ -722,8 +697,6 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
             
             results["final_blueprint"] = fut_final.result()
             results["history"] = fut_hist.result()
-
-        # --- ALIAS MAPPINGS FOR BACKWARD COMPATIBILITY ---
         # Some components expect "schema_design" but we generate "schema_modeling"
         results["schema_design"] = results.get("schema_modeling")
         results["blueprint"] = results.get("final_blueprint")

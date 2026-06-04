@@ -4,10 +4,7 @@ import json
 import uuid
 from snowflake.snowpark import Session
 from typing import Optional, Any
-
-# ---------------------------------------------------------------------------
 # JSON helpers
-# ---------------------------------------------------------------------------
 
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -22,10 +19,7 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 def safe_dumps(obj) -> str:
     return json.dumps(obj, cls=CustomJSONEncoder)
-
-# ---------------------------------------------------------------------------
 # Model registry
-# ---------------------------------------------------------------------------
 
 MODEL_REGISTRY = [
     {"id": "claude-sonnet-4-6", "tier": 1, "params": 3, "context": 200000},
@@ -34,10 +28,7 @@ MODEL_REGISTRY = [
 
 TWO_PARAM_ONLY_MODELS = {m["id"] for m in MODEL_REGISTRY if m["params"] == 2}
 MODEL_TOKEN_CAPS       = {m["id"]: m["context"] for m in MODEL_REGISTRY}
-
-# ---------------------------------------------------------------------------
 # Session management — SiS-first, st.secrets fallback
-# ---------------------------------------------------------------------------
 
 def _build_session_from_secrets() -> Optional[Session]:
     """Attempt to create a Snowpark session from st.secrets (local dev only)."""
@@ -159,10 +150,7 @@ def ensure_session() -> Session:
             print(f"[WARNING] Snowflake Auto-Init failed: {e}")
 
     return session
-
-# ---------------------------------------------------------------------------
 # Utility
-# ---------------------------------------------------------------------------
 
 def check_connection(session: Session) -> bool:
     """Returns True if the session is alive."""
@@ -178,10 +166,7 @@ def check_connection(session: Session) -> bool:
 def get_available_cortex_models(session: Session) -> list:
     """Returns the list of Cortex models from the central registry."""
     return [m["id"] for m in MODEL_REGISTRY]
-
-# ---------------------------------------------------------------------------
 # Project persistence
-# ---------------------------------------------------------------------------
 
 def save_project_to_store(session: Session, project_id: str, requirements: dict, data_profile: dict, outputs: dict) -> bool:
     """Saves the complete project state to ARCHITECTURE_STORE.PUBLIC.PROJECTS."""

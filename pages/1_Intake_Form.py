@@ -17,7 +17,7 @@ apply_premium_style()
 def show_section_nav(current_section):
     """Shows the high-level progress in the sidebar with clean professional styling."""
     
-    selected_model, active_session = render_ai_sidebar()
+    selected_model, active_session = render_ai_sidebar(show_model_selector=False)
     st.sidebar.divider()
 
     st.sidebar.markdown("### PROJECT ROADMAP")

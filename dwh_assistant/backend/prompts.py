@@ -1,10 +1,7 @@
 import json
 from typing import Dict, Any, List
 import datetime
-
-# ═══════════════════════════════════════════════
 # 1. MASTER SYSTEM PROMPT (Industrial Enforcement)
-# ═══════════════════════════════════════════════
 
 SYSTEM_PROMPT = """
 You are an Enterprise Data Architecture AI integrated into a multi-stage orchestration pipeline.
@@ -67,12 +64,7 @@ SCHEMA VIEW RULES (Warehouse Tab):
 - Must include Fact/Dimension tables (or Hub/Link/Satellites for Data Vault), columns, types, PK, FK, and relationships.
 - Must NOT include source systems, ingestion layers, or pipeline flows.
 """
-
-
-
-# ═══════════════════════════════════════════════
 # ARCHITECTURE & PARADIGM REGISTRIES
-# ═══════════════════════════════════════════════
 
 ARCH_TYPES = {
     "three_tier": "Three-tier Architecture",
@@ -98,10 +90,7 @@ NAMING_REGISTRY = {
     "key_format": "<entity>_sk", "feature_prefix": "FACT_features_",
     "ai_model_prefix": "model_", "ai_app_prefix": "app_", "ai_agent_prefix": "agent_"
 }
-
-# ═══════════════════════════════════════════════
 # PROMPT TEMPLATES
-# ═══════════════════════════════════════════════
 
 # STEP 1: Architecture Strategy
 ARCH_STRATEGY_PROMPT = """
@@ -459,10 +448,7 @@ OUTPUT FORMAT (JSON ONLY):
   }
 }
 """
-
-# ═══════════════════════════════════════════════
 # STEP MAP (Comprehensive)
-# ═══════════════════════════════════════════════
 
 STEP_MAP = {
     "architecture_strategy":  "architecture",
@@ -478,10 +464,7 @@ STEP_MAP = {
     "relationship_design":    "relationship_design",
     "final_blueprint":        "final_blueprint"
 }
-
-# ═══════════════════════════════════════════════
 # HELPERS
-# ═══════════════════════════════════════════════
 
 def compress_profile(profile: Dict[str, Any], mode: str = "meso") -> str:
     out = []
@@ -936,10 +919,7 @@ Before output, ensure:
 """
         return base + suffix
     return SYSTEM_PROMPT + suffix
-
-# ═══════════════════════════════════════════════
 # CONTINUATION PROMPT FOR TRUNCATED OUTPUTS
-# ═══════════════════════════════════════════════
 CONTINUATION_PROMPT = """
 Your previous output was truncated. Please continue generating the JSON content from the exact character where it left off. Do not repeat the previous content, do not start a new JSON block, and do not wrap in markdown tags. Output ONLY the remaining valid JSON characters.
 """

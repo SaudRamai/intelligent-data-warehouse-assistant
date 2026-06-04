@@ -417,9 +417,6 @@ def structured_merge(base: dict, update: dict) -> dict:
                 merged[k] = v if v else base_val
     return merged
 
-
-# --- 1. AI CORE EXECUTION ---
-
 TOKEN_BUDGETS = {
     "architecture_strategy": 16384,
     "schema_modeling":       16384,
@@ -573,8 +570,6 @@ def call_cortex(session, prompt: str, task_type: str, model: str = "mistral-larg
 
             if isinstance(parsed, dict) and "raw_unparsed" in parsed:
                 raise Exception("JSON decode failure: payload malformed or truncated")
-
-            # --- DETERMINISTIC INTERCEPTION TIER ---
             if isinstance(parsed, dict):
                 parsed = normalize_extracted_payload(parsed, task_type)
 
@@ -735,8 +730,6 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
     
     return result
 
-# --- 2. DATA PROFILING ---
-
 def profile_sources(_session: Session, db: str, schema: str, tables: List[str], limit: int = 10) -> Optional[Dict[str, Any]]:
     """Profiles a list of Snowflake tables for architectural context."""
     if "profile_cache" not in st.session_state:
@@ -791,12 +784,7 @@ def profile_sources(_session: Session, db: str, schema: str, tables: List[str], 
         st.session_state["profile_cache"][cache_key] = final_profile
         
     return final_profile
-
-# --- 3. PHYSICAL DEPLOYMENT ---
-
-# ═══════════════════════════════════════════════
 # METADATA-DRIVEN DDL UTILITIES
-# ═══════════════════════════════════════════════
 
 def layer_to_schema_name(layer_name: str) -> str:
     """

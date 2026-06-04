@@ -619,8 +619,6 @@ def main():
                 rels = model.get('primary_relationships') or model.get('relationships', [])
                 st.markdown(f"**Key Relationships**: {', '.join(rels if isinstance(rels, list) else [str(rels)])}")
             st.divider()
-
-        # --- ERD code resolution: 3-tier fallback ---
         # Tier 1: AI-generated diagram stored in schema_modeling — use if non-trivial and covers most tables
         ai_erd = schema.get("mermaid_diagram") or st.session_state.get("schema_modeling", {}).get("mermaid_diagram") or ""
         ai_erd = ai_erd.strip()

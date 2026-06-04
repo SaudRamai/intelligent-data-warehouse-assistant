@@ -7,12 +7,10 @@ from pathlib import Path
 import logging
 import warnings
 
-# Aggressively mute the "missing ScriptRunContext" warning globally
 logging.getLogger("streamlit.runtime.scriptrunner").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 warnings.filterwarnings("ignore", category=UserWarning, module="streamlit")
 
-# Custom logging filter to suppress WebSocketClosedError tracebacks and logs
 class SuppressWebSocketClosedError(logging.Filter):
     def filter(self, record):
         message = record.getMessage()
@@ -32,7 +30,6 @@ class SuppressWebSocketClosedError(logging.Filter):
                     pass
         return True
 
-# Apply the filter to suppress noisy disconnect tracebacks
 logging.getLogger().addFilter(SuppressWebSocketClosedError())
 for logger_name in ["tornado.application", "tornado.general", "streamlit.web.server.browser_websocket_handler", "streamlit"]:
     logging.getLogger(logger_name).addFilter(SuppressWebSocketClosedError())
@@ -40,24 +37,18 @@ for logger_name in ["tornado.application", "tornado.general", "streamlit.web.ser
 from dwh_assistant.utils.ui import apply_premium_style, render_ai_sidebar, init_session_state, render_page_header, reset_project_state
 from dwh_assistant.backend.snowflake import get_snowflake_session, check_connection, ensure_session, get_available_cortex_models
 
-# Page Config
 st.set_page_config(page_title="Industrial DWH Assistant", layout="wide", page_icon="🏭")
 init_session_state()
 apply_premium_style()
 
-# App Navigation & Auth
 def main():
-    # Sidebar Navigation and Connectivity Check
     selected_model, active_session = render_ai_sidebar(show_model_selector=False, show_logo=True)
     
-    # Generate Project ID if not exists
     if not st.session_state["project_id"]:
         st.session_state["project_id"] = str(uuid.uuid4())
     
-    # 2. Snowflake Connection Check (With Circuit Breaker)
     if not st.session_state.get("snowflake_connected"):
         try:
-            # ensure_session will check the local lockout file first
             session = ensure_session()
             st.session_state["snowflake_session"] = session
             st.session_state["snowflake_connected"] = True
@@ -75,32 +66,30 @@ def main():
                 st.sidebar.error("Snowflake: Connection Blocked")
                 st.error(f"Snowflake Authentication Error: {e}")
         
-        
         if st.button("Retry Connection"):
             st.rerun()
 
-    # 3. Main Landing UI
     render_page_header("Industrial", "Autonomous AI Architect for Snowflake.", "DWH Assistant")
     
     st.markdown("<br>", unsafe_allow_html=True)
     c1, c2, c3 = st.columns(3)
     with c1:
         st.markdown('''
-            <div class="glass-card-white" style="height: 100%;">
+            <div class="glass-card-white">
                 <h3 style="margin-top: 0; color: #002244;">🤖 AI-Driven Design</h3>
                 <p style="color: #64748B; font-size: 1.1rem;">Automated, intelligent data warehouse architecture specifically tailored for your Snowflake environment.</p>
             </div>
         ''', unsafe_allow_html=True)
     with c2:
         st.markdown('''
-            <div class="glass-card-white" style="height: 100%;">
+            <div class="glass-card-white">
                 <h3 style="margin-top: 0; color: #002244;">⚡ End-to-End DDL</h3>
                 <p style="color: #64748B; font-size: 1.1rem;">Instantly generates ready-to-deploy schema structures, tables, and Snowflake tasks.</p>
             </div>
         ''', unsafe_allow_html=True)
     with c3:
         st.markdown('''
-            <div class="glass-card-white" style="height: 100%;">
+            <div class="glass-card-white">
                 <h3 style="margin-top: 0; color: #002244;">🛡️ Secure & Governed</h3>
                 <p style="color: #64748B; font-size: 1.1rem;">Built-in best practices for RBAC, dynamic masking policies, and robust data lineage.</p>
             </div>
@@ -114,7 +103,7 @@ def main():
     action_col1, action_col2 = st.columns(2)
     
     with action_col1:
-        with st.container(border=True):
+        with st.container(border=True, height=260):
             st.markdown("#### New Project")
             st.markdown("<p style='color: #64748B;'>Start building a new Data Warehouse architecture from scratch or continue your active session.</p>", unsafe_allow_html=True)
             
@@ -131,7 +120,7 @@ def main():
                     st.switch_page("pages/1_Intake_Form.py")
 
     with action_col2:
-        with st.container(border=True):
+        with st.container(border=True, height=260):
             st.markdown("#### Load Saved Project")
             st.markdown("<p style='color: #64748B;'>Resume a previously saved architectural design from your Snowflake storage.</p>", unsafe_allow_html=True)
             

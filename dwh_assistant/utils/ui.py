@@ -20,7 +20,6 @@ def reset_project_state():
     st.session_state["current_section"] = 1
     st.session_state["form_buffer"] = {}
     
-    # Clean all generation artifacts, UI sliders, toggles, editors and cached keys
     keys_to_delete = []
     for k in list(st.session_state.keys()):
         if any(p in k for p in STATE_PREFIXES_TO_CLEAN) or k in STATE_EXACT_KEYS_TO_CLEAN:
@@ -52,8 +51,7 @@ def render_ai_sidebar(show_model_selector: bool = True, show_logo: bool = False)
     import os
     logo_path = "assets/logo.png"
     
-    # Try to use st.logo if available, otherwise just use sidebar image
-    if show_logo and os.path.exists(logo_path):
+    if os.path.exists(logo_path):
         try:
             st.logo(logo_path)
         except AttributeError:
@@ -74,7 +72,6 @@ def render_ai_sidebar(show_model_selector: bool = True, show_logo: bool = False)
             st.session_state["snowflake_connected"] = False
             st.warning(f"Offline Mode: {str(e)[:60]}")
             
-        # Get fallback models list if offline
         if active_session:
             available_models = get_available_cortex_models(active_session)
         else:
@@ -92,7 +89,7 @@ def render_ai_sidebar(show_model_selector: bool = True, show_logo: bool = False)
             selected_model = current_model
             
         st.divider()
-        status_color = "#006da8" if active_session else "#8c1c14"
+        status_color = "#00588a" if active_session else "#8c1c14"
         if active_session:
             status_text = "● READY"
             st.markdown(f"**Status**: <span style='color: {status_color};'>{status_text}</span>", unsafe_allow_html=True)

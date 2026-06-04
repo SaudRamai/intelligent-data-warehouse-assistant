@@ -16,7 +16,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
         print("[DWH LOG] No code provided to render_mermaid.")
         return
     
-    # Detect truncation BEFORE healing so we capture the raw AI output signal
     if detect_truncation(code):
         st.warning(
             "**Diagram may be incomplete.** The AI response was likely cut off due to response "
@@ -25,12 +24,10 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
         )
         print("[DWH LOG] Truncation detected in Mermaid output.")
 
-    # Ensure pristine, valid syntax
     code = clean_mermaid_code(code)
     
     div_id = f"mermaid_{uuid.uuid4().hex}"
     
-    # Define styles in a clean raw string to avoid escaping hell
     css_styles_template = r"""
         :root {
             --bg-color: #ffffff;
@@ -103,7 +100,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
             box-sizing: border-box;
             cursor: grab;
         }
-        #zoom-wrapper {
             position: absolute;
             top: 0;
             left: 0;
@@ -112,7 +108,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
             cursor: grab;
             display: inline-block;
         }
-        #zoom-wrapper:active {
             cursor: grabbing;
         }
         pre.mermaid {
@@ -206,7 +201,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
         }
     """
 
-    # Define JS in a raw string and insert variables using replace
     js_template = r"""
             const explicitNodeLayers = __NODE_LAYERS__;
             const rawMermaidCode = __RAW_MERMAID_CODE__;
@@ -866,7 +860,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
             window.fitToScreen = fitToScreen;
     """
 
-    # Do the raw template replacements
     css_styles = css_styles_template
     node_layers_json = json.dumps(node_layers or {})
     raw_mermaid_json = json.dumps(code)
@@ -908,7 +901,6 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
     </html>
     """
     
-    # Render using Streamlit's stable iframe component injection via data URL to avoid deprecation warnings
     import base64
     b64_html = base64.b64encode(html_content.encode('utf-8')).decode('utf-8')
     components.iframe(f"data:text/html;base64,{b64_html}", height=height, scrolling=True)

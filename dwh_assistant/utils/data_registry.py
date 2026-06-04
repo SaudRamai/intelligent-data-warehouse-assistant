@@ -1,4 +1,3 @@
-# Centralized Data Registry for Templates and Samples
 INDUSTRY_TEMPLATES = {
     "Retail": {
         "tables": [

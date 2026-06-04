@@ -4,7 +4,6 @@ import json
 import uuid
 from snowflake.snowpark import Session
 from typing import Optional, Any
-# JSON helpers
 
 class CustomJSONEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -19,7 +18,6 @@ class CustomJSONEncoder(json.JSONEncoder):
 
 def safe_dumps(obj) -> str:
     return json.dumps(obj, cls=CustomJSONEncoder)
-# Model registry
 
 MODEL_REGISTRY = [
     {"id": "claude-sonnet-4-6", "tier": 1, "params": 3, "context": 200000},
@@ -28,7 +26,6 @@ MODEL_REGISTRY = [
 
 TWO_PARAM_ONLY_MODELS = {m["id"] for m in MODEL_REGISTRY if m["params"] == 2}
 MODEL_TOKEN_CAPS       = {m["id"]: m["context"] for m in MODEL_REGISTRY}
-# Session management — SiS-first, st.secrets fallback
 
 def _build_session_from_secrets() -> Optional[Session]:
     """Attempt to create a Snowpark session from st.secrets (local dev only)."""
@@ -61,10 +58,8 @@ def _build_session_from_secrets() -> Optional[Session]:
 
     return Session.builder.configs(params).create()
 
-
 def _create_session_internal() -> tuple[Optional[Session], Optional[str]]:
     """Return (session, error_string). Tries SiS get_active_session first."""
-    # 1. Streamlit in Snowflake — use the ambient session (no creds needed)
     try:
         from snowflake.snowpark.context import get_active_session
         session = get_active_session()
@@ -73,7 +68,6 @@ def _create_session_internal() -> tuple[Optional[Session], Optional[str]]:
     except Exception:
         pass
 
-    # 2. Local development — read credentials from st.secrets
     try:
         session = _build_session_from_secrets()
         if session:
@@ -82,17 +76,14 @@ def _create_session_internal() -> tuple[Optional[Session], Optional[str]]:
     except Exception as e:
         return None, str(e)
 
-
 @st.cache_resource(show_spinner="Connecting to Snowflake...")
 def get_snowflake_session() -> tuple[Optional[Session], Optional[str]]:
     return _create_session_internal()
-
 
 def create_parallel_session() -> Optional[Session]:
     """Creates a fresh, uncached session for background threads."""
     session, _ = _create_session_internal()
     return session
-
 
 def ensure_session() -> Session:
     """
@@ -101,7 +92,6 @@ def ensure_session() -> Session:
     """
     session = st.session_state.get("snowflake_session")
 
-    # Heartbeat check
     if session:
         try:
             session.sql("SELECT 1").collect()
@@ -116,19 +106,16 @@ def ensure_session() -> Session:
         st.session_state["snowflake_session"]  = session
         st.session_state["snowflake_connected"] = True
 
-    # Auto-initialise DB once per app session
     if not st.session_state.get("snowflake_init_complete"):
         try:
             db_check = session.sql("SHOW DATABASES LIKE 'ARCHITECTURE_STORE'").collect()
             if not db_check:
                 run_setup_script(session)
 
-            # Self-healing schema migrations
             session.sql('ALTER TABLE ARCHITECTURE_STORE.PUBLIC.PROJECTS ADD COLUMN IF NOT EXISTS "MERMAID_DIAGRAM" TEXT').collect()
             session.sql('ALTER TABLE ARCHITECTURE_STORE.PUBLIC.PROJECTS ADD COLUMN IF NOT EXISTS "METADATA" VARIANT').collect()
             session.sql('ALTER TABLE ARCHITECTURE_STORE.PUBLIC.PROJECTS ADD COLUMN IF NOT EXISTS "HISTORY" VARIANT').collect()
 
-            # Auto-enable Cortex cross-region if running as ACCOUNTADMIN
             active_role = session.get_current_role() or ""
             if "ACCOUNTADMIN" in active_role.upper():
                 try:
@@ -150,7 +137,6 @@ def ensure_session() -> Session:
             print(f"[WARNING] Snowflake Auto-Init failed: {e}")
 
     return session
-# Utility
 
 def check_connection(session: Session) -> bool:
     """Returns True if the session is alive."""
@@ -162,17 +148,15 @@ def check_connection(session: Session) -> bool:
     except Exception:
         return False
 
-
 def get_available_cortex_models(session: Session) -> list:
     """Returns the list of Cortex models from the central registry."""
     return [m["id"] for m in MODEL_REGISTRY]
-# Project persistence
 
 def save_project_to_store(session: Session, project_id: str, requirements: dict, data_profile: dict, outputs: dict) -> bool:
     """Saves the complete project state to ARCHITECTURE_STORE.PUBLIC.PROJECTS."""
     try:
         arch      = outputs.get("architecture", outputs.get("architecture_selection", outputs.get("architecture_strategy", {})))
-        schema    = outputs.get("schema_modeling", outputs.get("schema", outputs.get("schema_design", {})))
+        schema    = outputs.get("schema_modeling", outputs.get("schema", {}))
         pipe      = outputs.get("pipeline", outputs.get("pipeline_design", {}))
         gov       = outputs.get("governance", outputs.get("governance_security", {}))
         artifacts = outputs.get("artifacts", outputs.get("ddl_generation", {}))
@@ -181,7 +165,6 @@ def save_project_to_store(session: Session, project_id: str, requirements: dict,
         ddl_sql  = artifacts.get("ddl_sql", outputs.get("ddl_generation", {}).get("ddl_sql", ""))
         doc_data = artifacts.get("documentation", outputs.get("documentation_design", {}))
 
-        # Flatten documentation dict → markdown string
         if isinstance(doc_data, dict):
             if "documentation" in doc_data and isinstance(doc_data["documentation"], str):
                 doc_text = doc_data["documentation"]
@@ -269,7 +252,6 @@ def save_project_to_store(session: Session, project_id: str, requirements: dict,
 
     except Exception as e:
         err_msg = str(e)
-        # Self-heal: add missing HISTORY column and retry once
         if "HISTORY" in err_msg or "identifier" in err_msg:
             try:
                 session.sql('ALTER TABLE ARCHITECTURE_STORE.PUBLIC.PROJECTS ADD COLUMN IF NOT EXISTS "HISTORY" VARIANT').collect()
@@ -282,7 +264,6 @@ def save_project_to_store(session: Session, project_id: str, requirements: dict,
                 pass
         print(f"Failed to save project: {err_msg}")
         return False
-
 
 def run_setup_script(session: Session):
     """Initialises ARCHITECTURE_STORE database and required tables."""
@@ -321,7 +302,6 @@ def run_setup_script(session: Session):
     except Exception as e:
         print(f"Setup failed: {e}")
 
-
 def log_deployment(session: Session, project_id: str, target_db: str, target_schema: str,
                    statements_run: int, status: str, errors: Any = None):
     """Logs a deployment outcome to ARCHITECTURE_STORE.PUBLIC.DEPLOY_LOG."""
@@ -337,7 +317,6 @@ def log_deployment(session: Session, project_id: str, target_db: str, target_sch
     except Exception as e:
         print(f"Failed to log deployment: {e}")
 
-
 @st.cache_data(ttl=300, show_spinner="Fetching project history...")
 def get_all_projects(_session: Session) -> list:
     """Fetches all stored projects from ARCHITECTURE_STORE."""
@@ -350,7 +329,6 @@ def get_all_projects(_session: Session) -> list:
     except Exception as e:
         print(f"Failed to fetch projects: {e}")
         return []
-
 
 def load_project_by_id(session: Session, project_id: str) -> Optional[dict]:
     """Loads a project by ID and returns a fully-resolved dict."""
@@ -384,7 +362,7 @@ def load_project_by_id(session: Session, project_id: str) -> Optional[dict]:
             "requirements":         parse_variant(row.get("REQUIREMENTS")),
             "data_profile":         parse_variant(row.get("DATA_PROFILE")),
             "architecture_selection": arch,
-            "schema_design":        schema,
+            "schema_modeling":        schema,
             "pipeline_design":      pipe,
             "governance_security":  gov,
             "ddl_generation":       {"ddl_sql": row.get("DDL_SQL", "")},
@@ -392,7 +370,6 @@ def load_project_by_id(session: Session, project_id: str) -> Optional[dict]:
             "relationship_design":  meta.get("relationship_design", {}),
             "final_blueprint":      meta.get("final_blueprint", {}),
             "final":                meta.get("final_blueprint", {}),
-            # Canonical master keys
             "architecture":         arch,
             "schema":               schema,
             "pipeline":             pipe,

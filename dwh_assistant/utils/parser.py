@@ -9,41 +9,22 @@ def clean_json_string(s: str) -> str:
     """
     if not s: return s
     
-    # 0. Strip markdown code fences (```json ... ```)
     s = re.sub(r'^```(?:json)?\s*', '', s.strip(), flags=re.IGNORECASE)
     s = re.sub(r'\s*```$', '', s)
     
-    # 1. Remove all types of comments first (including inline and block)
     s = re.sub(r'//.*?\n|/\*.*?\*/', '', s, flags=re.DOTALL)
     s = re.sub(r'^\s*#.*$', '', s, flags=re.MULTILINE)
     
-    # 2. Fix single quotes used as delimiters (common with Mixtral/Llama)
-    # Only if not preceded by a letter (to avoid breaking possessives in text)
-    # Improved: Use non-greedy match and avoid matching escaped quotes
     s = re.sub(r"(?<!\w)\'(\w+)\'\s*:", r'"\1":', s)
-    # Only replace if the entire value is wrapped in single quotes and contains no internal unescaped single quotes
     s = re.sub(r":\s*\'([^'\\]*(?:\\.[^'\\]*)*)\'", r': "\1"', s)
     
-    # 3. Improved comma injector: 
-    # This looks for a closing marker (quote, number, ], }) 
-    # followed by whitespace/newlines and then an opening quote
     s = re.sub(r'([\"|0-9|e|\]|\}])\s*\n\s*\"', r'\1,\n"', s)
     
-    # BUG02 FIX: Replace the entire rstrip block with regex-based trailing comma removal
-    # Step 1: Remove only a trailing comma that precedes the final closing structure
     s = re.sub(r',(\s*[}\]])$', r'\1', s.strip())
-    # Step 2: Remove standalone trailing comma at very end (no structure after it)
     s = re.sub(r',\s*$', '', s)
-    # Do NOT strip closing braces/brackets — let fix_truncated_json handle structure
     
-    # 5. Fix illegal escapes (JSON only allows \", \\, \/, \b, \f, \n, \r, \t, \u)
-    # Common AI mistake: \' (single quote) - replace with just '
     s = s.replace("\\'", "'")
     
-    # 4. JSON Escape Sanitizer: Fix illegal single backslashes (common in AI SQL)
-    # Improved: Match any backslash that isn't part of a valid JSON escape sequence
-    # Valid escapes: \", \\, \/, \b, \f, \n, \r, \t, \uXXXX
-    # BUG 9: Expanded lookahead for SQL regex characters (\d, \w, \S, etc)
     s = re.sub(r'\\(?![\\\"\/bfnrtuwWdDsSpP\(\)\[\]\{\}\.\*\+\?\^\$\|])', r'\\\\', s)
 
     return s.strip()
@@ -100,7 +81,6 @@ def heal_mermaid_flow(mermaid: str) -> str:
     lines = mermaid.split('\n')
     healed_lines = []
     
-    # Layer Weighting for directional enforcement
     layer_weights = {
         "source": 0, "src": 0, "erp": 0, "crm": 0, "app": 0, "s1": 0, "s2": 0, "s3": 0, "s4": 0, "feed": 0, "landing": 0,
         "bronze": 1, "raw": 1, "raw_vault": 1, "hub": 1, "lnk": 1, "sat": 1, "b1": 1, "b2": 1, "stage": 1, "stg": 1, "ingest": 1,
@@ -117,14 +97,12 @@ def heal_mermaid_flow(mermaid: str) -> str:
         return -1
 
     for line in lines:
-        # Match common arrow pattern: A --> B or A -- label --> B
         match = re.search(r'([^\s-]+)\s*(?:--[^>]*--|--+)\s*>\s*([^\s\[({]+)', line)
         if match:
             node_a, node_b = match.group(1), match.group(2)
             weight_a = get_weight(node_a)
             weight_b = get_weight(node_b)
             
-            # If both nodes have identifiable layers and flow is inverted (A > B)
             if weight_a != -1 and weight_b != -1 and weight_a > weight_b:
                 arrow_part_match = re.search(r'(\s*(?:--[^>]*--|--+)\s*>)', line)
                 if arrow_part_match:
@@ -143,19 +121,16 @@ def validate_step_output(step_name: str, data: Any, required_keys: List[str], sc
     """Centralized validation engine for AI-generated artifacts."""
     if not isinstance(data, dict): return False
     
-    # 1. Mandatory Key Check
     missing = [k for k in required_keys if k not in data]
     if missing: return False
     
-    # 2. Type Enforcement
     for key, expected_type in schema_specs.items():
         if key in data and not isinstance(data[key], expected_type):
             return False
             
-    # 3. Quality Check
     if "tables" in data:
         if not isinstance(data["tables"], list) or len(data["tables"]) == 0:
-            if step_name in ["schema_details", "schema_design", "schema_modeling"]:
+            if step_name in ["schema_details", "schema_modeling"]:
                 return False
     return True
 
@@ -165,18 +140,13 @@ def heal_mermaid_diagram(mermaid: str) -> str:
     """
     if not mermaid: return ""
     
-    # 1. Basic cleaning and header ensuring
     mermaid = mermaid.strip()
-    # Only unescape JSON escape sequences if they are still present as raw literals
-    # (i.e. the string was NOT yet parsed through json.loads). Applying these
-    # replacements to an already-decoded string corrupts valid node labels.
     if '\\n' in mermaid or '\\"' in mermaid or '\\\\' in mermaid:
         mermaid = mermaid.replace('\\\\', '\x00__SLASH__\x00')  # protect real backslashes
         mermaid = mermaid.replace('\\n', '\n')
         mermaid = mermaid.replace('\\"', '"')
         mermaid = mermaid.replace('\x00__SLASH__\x00', '\\')
     
-    # ER Diagram Type Simplification (Visual Only)
     if "erDiagram" in mermaid.lower():
         mermaid = mermaid.replace("TIMESTAMP_NTZ", "TIMESTAMP")
         mermaid = mermaid.replace("TIMESTAMP_LTZ", "TIMESTAMP")
@@ -193,7 +163,6 @@ def heal_mermaid_diagram(mermaid: str) -> str:
         mermaid = "flowchart LR\n" + mermaid
         lines = mermaid.split('\n')
 
-    # 2. Route to specialized cleaners
     if "erDiagram" in mermaid:
         return clean_mermaid_erd(mermaid)
     elif "flowchart" in mermaid or "graph" in mermaid:
@@ -214,7 +183,6 @@ def clean_mermaid_flowchart(code: str) -> str:
     cleaned = []
     seen_edges = set()
 
-    # 1. Isolate the header
     header_found = False
     start_line = 0
     for i, line in enumerate(lines):
@@ -263,7 +231,6 @@ def clean_mermaid_flowchart(code: str) -> str:
         ss = inner[-2:] if inner[-2:] in ["]]", "}}", "])", ")]", "))"] else inner[-1:]
         return f'{n_id}{sp}"{label}"{ss}'
 
-    # 2. First pass: collect standalone node label definitions
     node_labels: dict = {}
     for line in lines[start_line:]:
         l = line.strip()
@@ -282,7 +249,6 @@ def clean_mermaid_flowchart(code: str) -> str:
     emitted_nodes: set = set()
     style_lines = []
 
-    # 3. Main pass
     for line in lines[start_line:]:
         l = line.strip()
         if not l:
@@ -294,12 +260,10 @@ def clean_mermaid_flowchart(code: str) -> str:
 
         l = re.sub(r'\.\s*$', '', l)
 
-        # Defer style/class lines
         if any(l.lower().startswith(x) for x in ["classdef", "class ", "style "]):
             style_lines.append(f"    {l}")
             continue
 
-        # Subgraph
         sg = re.search(r'subgraph\s+([^"\[\(\s\n]+)?\s*(?:["\[\(]([^"\]\)]+?)["\]\)])?', l, re.IGNORECASE)
         if sg and not l.startswith(("end", "flowchart", "graph")):
             s_id, s_label = sg.groups()
@@ -307,7 +271,6 @@ def clean_mermaid_flowchart(code: str) -> str:
             cleaned.append(f"    subgraph {sanitize_id(s_id or title)} [\"{title}\"]")
             continue
 
-        # Edge lines
         if any(arrow in l for arrow in ["-->", "---", "-.-", "==>"]):  # noqa
             am = re.search(r'(\-\-\>|\-\-\-|\-\.\-|\=\=\>)', l)
             if am:
@@ -327,7 +290,6 @@ def clean_mermaid_flowchart(code: str) -> str:
                     if edge_key not in seen_edges:
                         seen_edges.add(edge_key)
 
-                        # Build node strings with labels
                         if len(src_split) > 1:
                             src_str = _format_node(src_id, "[" + src_split[1])
                             node_labels[src_id] = src_str
@@ -351,7 +313,6 @@ def clean_mermaid_flowchart(code: str) -> str:
                         cleaned.append(f"    {src_str} {arrow} {tgt_str}")
             continue
 
-        # Standalone node definitions (only emit if not already emitted via an edge)
         if not any(l.lower().startswith(x) for x in ["classdef", "class", "style", "direction"]):
             br = re.search(r'([\[\(\{].*)', l)
             if br:
@@ -378,13 +339,9 @@ def _eid(raw: str) -> str:
     """Normalises to uppercase alphanumeric+underscore identifier, collapsing multiple underscores."""
     if not raw:
         return "ENTITY"
-    # Replace spaces, dots, hyphens with underscore
     s = re.sub(r'[\.\s\-]+', '_', str(raw).strip()).upper()
-    # Retain only alphanumeric and underscore
     s = _SAFE_ID.sub('', s)
-    # Collapse multiple underscores and strip leading/trailing
     s = re.sub(r'_+', '_', s).strip('_')
-    # Reject artificial/invalid entity names that are completely empty or too short
     return s if s else "ENTITY"
 
 _TYPE_MAP = {
@@ -402,13 +359,11 @@ _TYPE_MAP = {
 
 def normalize_attribute_type(t: str, col_name: str = "") -> str:
     """Maps database-specific type to standard clean types supported by Mermaid."""
-    # Split by parenthesis to ignore lengths or precision scale, e.g. VARCHAR(50) or NUMBER(38,0)
     cleaned = str(t).lower().split("(")[0].strip()
     cleaned = re.sub(r'[^a-z0-9_]', '', cleaned)
     
     mapped = _TYPE_MAP.get(cleaned, cleaned[:20]) or "string"
     
-    # Refine "number" to int or float based on semantic naming of the column
     if mapped == "number":
         c_low = str(col_name).lower()
         if any(x in c_low for x in ["price", "amount", "rate", "discount", "freight", "tax", "cost", "value", "amt"]):
@@ -436,7 +391,6 @@ def get_layer_for_table(name: str, table_to_layer: Optional[Dict[str, str]] = No
     if table_to_layer and normalized_name in table_to_layer:
         return table_to_layer[normalized_name]
         
-    # Fallback to heuristics
     if any(x in normalized_name for x in ["BRONZE", "RAW", "LANDING", "SRC_"]):
         return "Bronze"
     if any(x in normalized_name for x in ["SILVER", "STAGING", "STG_", "CLEAN", "CONFORMED"]):
@@ -465,14 +419,12 @@ def clean_mermaid_erd(code: str) -> str:
     
     current_entity = None
     
-    # Improved regex for ER relationships
     rel_regex = r'([a-zA-Z0-9_\.\s\-]+)\s+([\|\}o][\|o]?[\-\.][\-\.][\|o]?[\|\{o])\s+([a-zA-Z0-9_\.\s\-]+)(?:\s*:\s*"?([^"]*)"?)?'
     
     for line in lines:
         l = line.strip()
         if not l or l.lower().startswith("erdiagram") or l.startswith("%%"): continue
         
-        # Check if line contains a relationship
         edge_match = re.search(rel_regex, l)
         simple_match = None
         if not edge_match:
@@ -499,7 +451,6 @@ def clean_mermaid_erd(code: str) -> str:
                         "rel_type": rel_type,
                         "label": clean_label
                     })
-                    # Ensure both entities exist in registry
                     if src_eid not in entities: 
                         entities[src_eid] = []
                         seen_attrs[src_eid] = set()
@@ -508,7 +459,6 @@ def clean_mermaid_erd(code: str) -> str:
                         seen_attrs[tgt_eid] = set()
             continue
 
-        # Check for start of entity block
         if "{" in l:
             match = re.search(r'^([a-zA-Z0-9_\.\s\-]+)\s*\{', l)
             if match:
@@ -519,7 +469,6 @@ def clean_mermaid_erd(code: str) -> str:
                     if current_entity not in entities:
                         entities[current_entity] = []
                         seen_attrs[current_entity] = set()
-                # Check if there are attributes inline after {
                 inline_attr = l.split("{", 1)[1].strip().rstrip("}")
                 if inline_attr:
                     parts = [p.strip() for p in inline_attr.split() if p.strip()]
@@ -535,12 +484,10 @@ def clean_mermaid_erd(code: str) -> str:
                             entities[current_entity].append(f"        {col_type} {col_name} {marker}".strip())
             continue
             
-        # Check for end of entity block
         if "}" in l:
             current_entity = None
             continue
             
-        # If we are inside an entity block, parse attributes
         if current_entity:
             raw_parts = [p.strip() for p in l.split() if p.strip()]
             if len(raw_parts) >= 2:
@@ -562,15 +509,12 @@ def clean_mermaid_erd(code: str) -> str:
                     marker = "PK" if col_name.endswith("_sk") else ""
                     entities[current_entity].append(f"        {col_type} {col_name} {marker}".strip())
 
-    # Build diagram sections layer-by-layer
     layer_groups = defaultdict(list)
     for ent in entities.keys():
         layer_groups[get_layer_for_table(ent)].append(ent)
 
-    # Sort layers
     sorted_layers = sorted(layer_groups.keys(), key=layer_sort_key)
     
-    # Filter out Bronze / Raw / Landing layers if other warehouse layers exist
     warehouse_layers = [l for l in sorted_layers if l.lower() not in ["bronze", "raw", "landing", "ingest"]]
     target_layers = warehouse_layers if warehouse_layers else sorted_layers
     
@@ -579,7 +523,6 @@ def clean_mermaid_erd(code: str) -> str:
     for layer in target_layers:
         rendered_tables.update(layer_groups[layer])
     
-    # 1. Output strict, deduplicated, fully populated entities layer by layer
     for layer in target_layers:
         layer_ents = layer_groups[layer]
         layer_lines = []
@@ -595,7 +538,6 @@ def clean_mermaid_erd(code: str) -> str:
                     layer_lines.append(f"    {attr.strip()}")
             layer_lines.append("  }")
             
-        # Group intra-layer relationships inside the layer section
         layer_table_names = set(layer_ents)
         intra_rels = []
         for r in relationships:
@@ -607,7 +549,6 @@ def clean_mermaid_erd(code: str) -> str:
             
         final_sections.append("\n".join(layer_lines))
 
-    # 2. Output cross-layer relationships
     cross_layer_rels = []
     for r in relationships:
         from_layer = get_layer_for_table(r["from"])
@@ -616,7 +557,6 @@ def clean_mermaid_erd(code: str) -> str:
             if r["from"] in rendered_tables and r["to"] in rendered_tables:
                 cross_layer_rels.append(f"  {r['from']} {r['rel_type']} {r['to']} : {r['label']}")
 
-    # If no explicit relationships exist, infer them
     if not relationships and len(entities) > 1:
         ent_names = set(entities.keys())
         for ent, attrs in entities.items():
@@ -640,7 +580,6 @@ def clean_mermaid_erd(code: str) -> str:
                                 seen_rels.add(rel_key)
                                 cross_layer_rels.append(f"  {best_target} ||--o{{ {ent} : references")
 
-    # Assembly Phase
     res = ["erDiagram"]
     for section in final_sections:
         res.append(section)
@@ -650,7 +589,6 @@ def clean_mermaid_erd(code: str) -> str:
         res.extend(cross_layer_rels)
         
     return "\n".join(res)
-
 
 def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[Dict]] = None) -> str:
     """
@@ -662,13 +600,11 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
     if not tables:
         return "erDiagram\n"
 
-    # Map tables to their layers
     table_to_layer = {}
     for table in tables:
         if isinstance(table, dict) and table.get("name"):
             table_to_layer[_eid(table["name"])] = table.get("layer", "Warehouse")
 
-    # Group tables by layer
     layer_groups = defaultdict(list)
     for table in tables:
         if not isinstance(table, dict):
@@ -676,11 +612,9 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
         layer = table.get("layer", "Warehouse")
         layer_groups[layer].append(table)
 
-    # Gather all relationships first
     all_rels = []
     seen_rels = set()
 
-    # 1. From column refs
     for table in tables:
         if not isinstance(table, dict):
             continue
@@ -706,7 +640,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
                             "label": "references"
                         })
 
-    # 2. From explicit relationships
     if relationships:
         for rel_item in relationships:
             if not isinstance(rel_item, dict):
@@ -729,14 +662,11 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
                     "label": label
                 })
 
-    # Build layers incrementally
     final_sections = []
     cross_layer_rels = []
 
-    # Sort layers
     sorted_layers = sorted(layer_groups.keys(), key=layer_sort_key)
     
-    # Filter out Bronze / Raw / Landing layers if other warehouse layers exist
     warehouse_layers = [l for l in sorted_layers if l.lower() not in ["bronze", "raw", "landing", "ingest"]]
     target_layers = warehouse_layers if warehouse_layers else sorted_layers
 
@@ -750,7 +680,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
         layer_lines = []
         layer_lines.append(f"\n  %% ─── {layer.upper()} LAYER ───")
         
-        # Add tables in this layer
         for table in layer_tables:
             ent = _eid(table.get("name", ""))
             if not ent or ent in ("ERDIAGRAM", "SELECT", "FROM", "WHERE"):
@@ -778,7 +707,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
                     layer_lines.append(f"    {col_type} {col_name}{marker_str}")
             layer_lines.append("  }")
 
-        # Add intra-layer relationships
         layer_table_names = { _eid(t.get("name", "")) for t in layer_tables }
         intra_rels = []
         for r in all_rels:
@@ -790,7 +718,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
 
         final_sections.append("\n".join(layer_lines))
 
-    # Cross-layer relationships
     for r in all_rels:
         from_layer = get_layer_for_table(r["from"], table_to_layer)
         to_layer = get_layer_for_table(r["to"], table_to_layer)
@@ -798,7 +725,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
             if r["from"] in rendered_tables and r["to"] in rendered_tables:
                 cross_layer_rels.append(f"  {r['from']} {r['cardinality']} {r['to']} : {r['label']}")
 
-    # Combine everything
     output_lines = ["erDiagram"]
     for section in final_sections:
         output_lines.append(section)
@@ -808,8 +734,6 @@ def synthesize_erd_from_tables(tables: List[Dict], relationships: Optional[List[
         output_lines.extend(cross_layer_rels)
 
     return "\n".join(output_lines)
-
-
 
 def detect_truncation(mermaid: str) -> bool:
     """
@@ -826,10 +750,6 @@ def detect_truncation(mermaid: str) -> bool:
     
     text = mermaid.strip()
     
-    # 1. Count unbalanced curly braces (entity blocks in erDiagram).
-    # Important: erDiagram relationship cardinality markers (e.g. ||--o{ or }|) contain
-    # literal { and } characters — strip relationship lines before counting so we
-    # only count actual entity-block delimiters.
     lines_for_brace = [
         l for l in text.splitlines()
         if not re.search(r'[|o][|\-\.][|\-\.][|o{]', l)   # skip cardinality markers
@@ -840,7 +760,6 @@ def detect_truncation(mermaid: str) -> bool:
     if open_braces > close_braces:
         return True
     
-    # 2. Check for dangling last line — truncation mid-token
     last_line = text.splitlines()[-1].strip() if text.splitlines() else ''
     dangling_patterns = [
         r',$',                     # trailing comma
@@ -853,14 +772,12 @@ def detect_truncation(mermaid: str) -> bool:
         if re.search(pat, last_line, re.IGNORECASE):
             return True
     
-    # 3. Flowchart: open subgraph with no matching 'end'
     subgraph_opens = len(re.findall(r'\bsubgraph\b', text, re.IGNORECASE))
     subgraph_ends  = len(re.findall(r'^\s*end\b', text, re.IGNORECASE | re.MULTILINE))
     if subgraph_opens > subgraph_ends:
         return True
     
     return False
-
 
 def clean_mermaid_code(code: str, tab_route: Optional[str] = None) -> str:
 
@@ -871,14 +788,12 @@ def clean_mermaid_code(code: str, tab_route: Optional[str] = None) -> str:
     """
     if not code: return ""
     
-    # 1. Strip markdown wrappers
     code = re.sub(r'^```(?:mermaid)?\s*', '', code.strip(), flags=re.IGNORECASE)
     code = re.sub(r'\s*```$', '', code)
     
     lines = [l.strip() for l in code.split('\n')]
     valid_keywords = ['graph ', 'graph\n', 'flowchart ', 'flowchart\n', 'erdiagram', 'sequencediagram', 'classdiagram', 'gantt', 'pie']
     
-    # Find the very first line that starts with a valid keyword
     start_idx = -1
     for i, line in enumerate(lines):
         l_low = line.lower()
@@ -887,18 +802,13 @@ def clean_mermaid_code(code: str, tab_route: Optional[str] = None) -> str:
             break
             
     if start_idx == -1:
-        # No valid graph syntax exists in this block.
-        # If tab_route is schema, it MUST only render an erDiagram.
         if tab_route == "schema":
             return "erDiagram\n"
-        # Otherwise, do not send raw plain text or UI labels to the renderer
         return ""
         
-    # Extract only the valid diagram block
     diagram_lines = lines[start_idx:]
     diagram_str = "\n".join(diagram_lines)
     
-    # If route is schema, enforce that it must be an erDiagram
     if tab_route == "schema" and "erdiagram" not in diagram_str.lower():
         return "erDiagram\n"
         
@@ -913,37 +823,28 @@ def validate_modeling_rules(schema: Dict[str, Any], paradigm: str = "STAR_SCHEMA
     relationships = schema.get("relationships", [])
     p = str(paradigm).upper()
     
-    # Map table name to type and prefix
     table_types = {t.get("name"): t.get("type", "").lower() for t in tables}
     
-    # 1. PARADIGM-SPECIFIC VALIDATION
     if p == "DATA_VAULT":
-        # Data Vault Rules: Hubs, Links, Satellites
         for rel in relationships:
             src = rel.get("from_table") or rel.get("from", "").split(".")[0]
             tgt = rel.get("to_table") or rel.get("to", "").split(".")[0]
             
-            # Satellites must only join to Hubs or Links
             if src.startswith("sat_") and not (tgt.startswith("hub_") or tgt.startswith("lnk_")):
                 errors.append(f"DATA VAULT VIOLATION: Satellite {src} must join to a Hub or Link, not {tgt}.")
-            # Hubs should not join directly to other Hubs
             if src.startswith("hub_") and tgt.startswith("hub_"):
                 errors.append(f"DATA VAULT VIOLATION: Hub {src} cannot join directly to Hub {tgt}. Use a Link.")
         return errors # Data Vault has its own flow
 
-    # 2. STANDARD DIMENSIONAL RULES (Star, Snowflake, Galaxy)
     for rel in relationships:
         source = rel.get("from_table") or rel.get("from", "").split(".")[0]
         target = rel.get("to_table") or rel.get("to", "").split(".")[0]
         src_type = table_types.get(source)
         tgt_type = table_types.get(target)
 
-        # Relational Integrity Check (Cross-Paradigm)
         if src_type == "fact" and tgt_type == "fact" and p == "STAR_SCHEMA":
-             # Optional: Allow transaction-to-transaction joins for non-Gold layers
              pass
             
-    # 3. Column-level FK check
     for t in tables:
         t_name = t.get("name")
         for col in t.get("columns", []):
@@ -954,7 +855,6 @@ def validate_modeling_rules(schema: Dict[str, Any], paradigm: str = "STAR_SCHEMA
                 else:
                     ref_table = ref.split(".")[0]
                     if ref_table not in table_types and not any(t_name == ref_table for t_name in table_types):
-                        # Relax check if the table might be in another layer (cross-layer ref)
                         pass
                         
     return errors
@@ -970,7 +870,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
     def extract_inner(raw_str: str) -> str:
         """Extract inner JSON string from Cortex wrapper using json.loads — no regex."""
         try:
-            # Handle potential markdown wrapper before parsing outer
             s = raw_str.strip()
             s = re.sub(r'^```(?:json)?\s*', '', s, flags=re.IGNORECASE)
             s = re.sub(r'\s*```$', '', s)
@@ -997,9 +896,7 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
             return unbox(obj[0])
         if not isinstance(obj, dict): return obj
         
-        # Check for standard Cortex/OpenAI wrappers
         if isinstance(obj, dict):
-            # Check for 'choices' envelope
             if "choices" in obj and len(obj["choices"]) > 0:
                 choice = obj["choices"][0]
                 msg = choice.get("messages") or choice.get("message") or {}
@@ -1011,12 +908,10 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
                         content = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
                 
                 if content: 
-                    # RECURSIVE UNWRAP: In case of multiple envelopes
                     inner_parsed = safe_json_parse(content, task_type)
                     if isinstance(inner_parsed, dict) and inner_parsed:
                         return inner_parsed
             
-            # Check for direct 'message' or 'content' keys
             if "message" in obj and isinstance(obj["message"], dict):
                 return unbox(obj["message"])
             if "content" in obj and isinstance(obj["content"], str):
@@ -1036,10 +931,8 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
         
     if not isinstance(raw, str): return {}
 
-    # 1. TASK-SPECIFIC SCRAPING (SQL)
     if task_type == "ddl_generation":
         sql_blocks = re.findall(r'```(?:sql)?\s*(.*?)\s*```', raw, re.DOTALL | re.IGNORECASE)
-        # Filter out blocks that are clearly JSON
         sql_blocks = [b for b in sql_blocks if not b.strip().startswith("{")]
         if sql_blocks:
             return {
@@ -1048,7 +941,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
                 "transform_sql": sql_blocks[2].strip() if len(sql_blocks) > 2 else "-- No transforms required"
             }
 
-    # STRATEGY 1: Full outer parse + unbox (handles complete responses)
     try:
         start = raw.find("{")
         end = raw.rfind("}")
@@ -1060,7 +952,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
     except Exception as e:
         print(f"[DEBUG] Strategy 1 failed: {e}")
 
-    # STRATEGY 2: Extract inner string via json.loads (handles SQL escapes correctly)
     inner = extract_inner(raw)
     if inner:
         inner = re.sub(r'^```(?:json)?\s*', '', inner.strip(), flags=re.IGNORECASE)
@@ -1079,7 +970,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
                 except Exception as fe:
                     print(f"[DEBUG] Strategy 2 repair failed: {fe}")
 
-    # STRATEGY 3: Structural repair on raw (Last resort)
     start = raw.find("{")
     if start != -1:
         try:
@@ -1088,7 +978,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
             return unbox(decoded)
         except: pass
 
-    # ALIAS MAPPING for downstream stability
     if isinstance(decoded, dict):
         aliases = {
             "type": "architecture_type", "strategy": "architecture_strategy",
@@ -1099,7 +988,6 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
             "summary_text": "summary", "docs": "documentation"
         }
         
-        # Deep Alias Injection
         def inject_aliases(obj):
             if not isinstance(obj, dict): return
             new_keys = {}
@@ -1116,6 +1004,4 @@ def safe_json_parse(raw: Any, task_type: str = None) -> Dict[str, Any]:
         return decoded
 
     return {}
-
-# These are now imported from snowflake_conn
 

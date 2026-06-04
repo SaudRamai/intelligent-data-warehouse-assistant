@@ -3,7 +3,6 @@ import sys
 import os
 from pathlib import Path
 
-# Fix for ModuleNotFoundError
 root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -64,13 +63,10 @@ def main():
     
     section = st.session_state["current_section"]
     
-    # Update Sidebar Navigation
     show_section_nav(section)
     
-    # Header Section
     render_page_header("Requirement", f"Configuration Step {section} of 5: Establishing architectural guardrails.", "Form")
 
-    # Content Area
     if "form_buffer" not in st.session_state:
         st.session_state["form_buffer"] = {}
     

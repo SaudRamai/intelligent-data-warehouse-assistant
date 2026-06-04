@@ -21,7 +21,7 @@ STATE_PREFIXES_TO_CLEAN = [
 
 STATE_EXACT_KEYS_TO_CLEAN = [
     "architecture_selection", "architecture", "architecture_strategy",
-    "schema_modeling", "schema", "schema_context",
+    "schema_modeling", "schema_design", "schema", "schema_context",
     "pipeline_design", "pipeline", "governance_security", "governance",
     "ddl_generation", "artifacts", "documentation_design", "final_blueprint", "blueprint",
     "history", "edited_schema_creation", "edited_ddl_sql", "edited_grant_sql", "edited_transform_sql",

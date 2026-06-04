@@ -6,12 +6,12 @@ PREMIUM_CSS = """
             
             /* Background subtle animated mesh */
             .stApp {
-                background: radial-gradient(circle at 15% 50%, rgba(0, 88, 138, 0.04), transparent 25%),
+                background: radial-gradient(circle at 15% 50%, rgba(0, 109, 168, 0.04), transparent 25%),
                             radial-gradient(circle at 85% 30%, rgba(140, 28, 20, 0.06), transparent 25%);
             }
 
             .glass-card {
-                background: linear-gradient(135deg, rgba(22, 58, 96, 0.95), rgba(8, 77, 122, 0.95));
+                background: linear-gradient(135deg, rgba(28, 72, 119, 0.95), rgba(10, 95, 150, 0.95));
                 backdrop-filter: blur(12px);
                 border: 1px solid rgba(255, 255, 255, 0.08);
                 border-radius: 20px;
@@ -32,7 +32,6 @@ PREMIUM_CSS = """
                 cursor: pointer;
                 position: relative;
                 top: 0;
-                height: 230px;
             }
             .glass-card-white:hover {
                 transform: translateY(-8px) scale(1.02);
@@ -47,7 +46,7 @@ PREMIUM_CSS = """
             }
             
             .header-banner {
-                background: linear-gradient(135deg, #084d7a 0%, #163a60 100%);
+                background: linear-gradient(135deg, #0a5f96 0%, #1c4877 100%);
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 border-radius: 24px;
                 padding: 60px 50px;
@@ -59,7 +58,7 @@ PREMIUM_CSS = """
             
             /* Animated gradient text for highlight */
             .text-gradient {
-                background: linear-gradient(to right, #00588a, #ff4747, #00588a, #ff4747);
+                background: linear-gradient(to right, #38bdf8, #ff4747, #38bdf8, #ff4747);
                 background-size: 200% auto;
                 color: transparent;
                 -webkit-background-clip: text;

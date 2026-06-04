@@ -19,7 +19,7 @@ The application is a state-of-the-art **AI Orchestrator** that bridges business 
 
 ## 2. Core Module Deep-Dive
 
-### 2.1 Backend: Connection & Security (`dwh_assistant/backend/snowflake.py`)
+### 2.1 Backend: Connection & Security (`snowflake_conn.py`)
 The connection layer is designed for enterprise resilience, featuring an automated "Circuit Breaker."
 
 *   **Session Management**: Uses `st.cache_resource` to persist the Snowpark session. It includes a heartbeat check (`SELECT 1`) to ensure the connection hasn't timed out.
@@ -31,7 +31,7 @@ The connection layer is designed for enterprise resilience, featuring an automat
     *   If missing, it executes `setup.sql` to build the required persistence layer.
     *   It also attempts to grant the `SNOWFLAKE.CORTEX_USER` database role to the current active role.
 
-### 2.2 AI Logic: Cortex Engine (`dwh_assistant/backend/executor.py`)
+### 2.2 AI Logic: Cortex Engine (`cortex_engine.py`)
 This module handles the non-deterministic nature of LLMs with surgical precision.
 
 *   **SQL Literal Construction**: Uses raw SQL `SELECT SNOWFLAKE.CORTEX.COMPLETE(...)` with dollar-sign quoting (`$$...$$`) to handle complex prompt characters safely.
@@ -40,7 +40,7 @@ This module handles the non-deterministic nature of LLMs with surgical precision
     *   `fix_truncated_json()`: A stack-based parser that automatically closes unclosed braces `{}` or brackets `[]` if the LLM output is cut off due to token limits.
 *   **Model Fallback Strategy**: If the primary model (e.g., Claude 3.5 Sonnet) fails due to regional throughput limits, the engine automatically falls back to secondary models (Mixtral 8x7b, Llama 3.1 8b) to ensure service continuity.
 
-### 2.3 Deployment Logic: Executor (`dwh_assistant/backend/executor.py`)
+### 2.3 Deployment Logic: Executor (`deploy_executor.py`)
 Handles the transition from "Design" to "Live" with transactional-like safety.
 
 *   **Atomic Execution**: Splinters the generated DDL SQL into individual statements and executes them sequentially.
@@ -49,7 +49,7 @@ Handles the transition from "Design" to "Live" with transactional-like safety.
 
 ---
 
-## 3. Database Schema (`dwh_assistant/setup.sql`)
+## 3. Database Schema (`setup.sql`)
 
 The persistence layer consists of two mission-critical tables:
 
@@ -70,7 +70,7 @@ Audit trail for infrastructure changes.
 
 ---
 
-## 4. UI/UX Design System (`dwh_assistant/components/styles.py`)
+## 4. UI/UX Design System (`styles.py`)
 
 The application uses a **Premium Midnight Navy** design language.
 
@@ -98,7 +98,7 @@ The application uses a **Premium Midnight Navy** design language.
     conda activate dwh_assistant
     ```
 2.  **Secrets Configuration**:
-    Create `.streamlit/secrets.toml`:
+    Create `dwh_assistant/.streamlit/secrets.toml`:
     ```toml
     SNOWFLAKE_ACCOUNT = "..."
     SNOWFLAKE_USER = "..."

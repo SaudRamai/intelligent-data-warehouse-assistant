@@ -11,6 +11,7 @@ from collections import defaultdict
 
 STEP_LOCKS = defaultdict(threading.Lock)
 
+# Nuclear suppression of "missing ScriptRunContext" warnings
 for logger_name in logging.root.manager.loggerDict:
     if "streamlit" in logger_name:
         logging.getLogger(logger_name).addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
@@ -33,9 +34,12 @@ def layer_to_schema_name(layer_name: str) -> str:
     Lakehouse, Three-tier, Cloud DWH, Modern ELT, etc.).
     """
     import re
+    # Slugify: replace any non-alphanumeric characters with underscores
     slug = re.sub(r'[^a-zA-Z0-9]', '_', layer_name.strip())
+    # Collapse multiple underscores, strip leading/trailing underscores
     slug = re.sub(r'_+', '_', slug).strip('_').upper()
     return slug if slug else 'WAREHOUSE_LAYER'
+
 
 def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dict:
     """
@@ -65,10 +69,13 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
     if not isinstance(schema_modeling_result, dict):
         schema_modeling_result = {}
 
+    # 1. Pull the canonical layer list from architecture_strategy
     raw_layers = arch_result.get("layers", [])
     if not isinstance(raw_layers, list) or not raw_layers:
+        # Fallback: single generic layer
         raw_layers = ["Warehouse"]
 
+    # 2. Build ordered layer metadata
     layer_meta = []
     for layer_name in raw_layers:
         layer_meta.append({
@@ -77,12 +84,15 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
             "tables":      []
         })
 
+    # 3. Build a lookup: normalised_layer_label → index in layer_meta
     def _norm(s: str) -> str:
         return re.sub(r'[^a-z0-9]', '', str(s).lower())
 
     label_to_idx = {_norm(lm["layer_name"]): i for i, lm in enumerate(layer_meta)}
+    # Also map by generated schema_name for double-coverage
     schema_to_idx = {_norm(lm["schema_name"]): i for i, lm in enumerate(layer_meta)}
 
+    # 4. Group tables into their layers
     all_tables = schema_modeling_result.get("tables", [])
     if not isinstance(all_tables, list):
         all_tables = []
@@ -94,11 +104,13 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
         t_layer_raw = str(t.get("layer", "")).strip()
         t_layer_norm = _norm(t_layer_raw)
 
+        # Exact normalised match first
         if t_layer_norm in label_to_idx:
             idx = label_to_idx[t_layer_norm]
         elif t_layer_norm in schema_to_idx:
             idx = schema_to_idx[t_layer_norm]
         else:
+            # Partial substring match (handles cases like "Gold (Serving)" → "Gold")
             idx = None
             for lbl, li in label_to_idx.items():
                 if lbl in t_layer_norm or t_layer_norm in lbl:
@@ -108,6 +120,7 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
                 unmatched.append(t)
                 continue
 
+        # Append a lean copy of the table (name + columns only) to keep token budget tight
         layer_meta[idx]["tables"].append({
             "name":    t.get("name", "unknown_table"),
             "columns": [
@@ -122,6 +135,7 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
             ]
         })
 
+    # 5. Distribute unmatched tables into the last layer (most common catch-all)
     if unmatched:
         catch_all_idx = len(layer_meta) - 1
         print(f"[SCHEMA CONTEXT] {len(unmatched)} tables had unmatched layers — routed to '{layer_meta[catch_all_idx]['layer_name']}'")
@@ -140,6 +154,8 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
                 ]
             })
 
+    # 6. Remove empty layers (architectures may define layers not yet populated)
+    #    But keep at least one layer to avoid empty context
     populated = [lm for lm in layer_meta if lm["tables"]]
     if not populated:
         populated = layer_meta  # Keep all if none are populated yet
@@ -149,8 +165,11 @@ def build_schema_context(arch_result: dict, schema_modeling_result: dict) -> dic
 
     return {"layers": populated}
 
+
 import re  # needed by layer_to_schema_name at module level
 
+# Core requirements for each step to be considered "Complete"
+# Refactored for Unified Modeling Flow
 STEP_REQUIRED_KEYS = {
     "architecture_strategy": ["architecture_type", "modeling_paradigm", "layers", "mermaid_diagram"],
     "schema_modeling":       ["tables"],
@@ -186,6 +205,7 @@ def safe_callback(status_callback, step, state, data=None):
     try:
         status_callback(step, state, data)
     except Exception:
+        # Completely suppress background threading state update desynchronization warnings to preserve log cleanliness
         pass
 
 def run_step(session, step_name: str, requirements: dict, data_profile: dict, current_results: dict, model: str, status_callback=None, last_error=None, depth=0, force_refresh=False):
@@ -193,6 +213,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
     with threading.Lock(): # Completely unshared zero-contention thread block
         safe_callback(status_callback, step_name, "running")
         
+        # Strip redundant metadata to ensure clean serialization and minimize token payload
         stripped_results = {k: v for k, v in (current_results or {}).items() if not k.endswith("_raw")}
         base_prompt = build_prompt(step_name, requirements, data_profile, stripped_results)
         import hashlib
@@ -236,6 +257,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                 required_keys = STEP_REQUIRED_KEYS.get(step_name, [])
                 expected_types = TYPE_SPECS.get(step_name, {})
                 
+                # Deep Alias Mapping and Expansion for Minified Keys to Ensure UI Component Completeness
                 if isinstance(output, dict):
                     aliases = {
                         "diagram": "mermaid_diagram", "mermaid": "mermaid_diagram",
@@ -246,6 +268,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                         if k in aliases and aliases[k] not in output:
                             output[aliases[k]] = v
 
+                    # Expand schema tables
                     if "tables" in output and isinstance(output["tables"], list):
                         for t in output["tables"]:
                             if isinstance(t, dict):
@@ -266,6 +289,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                                             if "fk" in c and "is_fk" not in c: c["is_fk"] = c.pop("fk")
                                             if "ref" in c and "references" not in c: c["references"] = c.pop("ref")
 
+                    # Expand pipeline tasks
                     if "tasks" in output and isinstance(output["tasks"], list):
                         for t in output["tasks"]:
                             if isinstance(t, dict):
@@ -277,6 +301,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                                 if "layer" not in t: t["layer"] = "Silver/Gold"
                                 if "frequency" not in t: t["frequency"] = "Batch"
 
+                    # Expand governance roles and masking policies
                     if "roles" in output and isinstance(output["roles"], list):
                         for r in output["roles"]:
                             if isinstance(r, dict):
@@ -297,6 +322,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                                 if "t" in m and "type" not in m: m["type"] = m.pop("t")
                                 if "e" in m and "role" not in m: m["role"] = m.pop("e")
 
+                    # Expand relationship keys (f/t/c to from/from_table/to/to_table/cardinality)
                     if "rel" in output and isinstance(output["rel"], list):
                         for r in output["rel"]:
                             if isinstance(r, dict):
@@ -311,11 +337,13 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                                 if "c" in r and "cardinality" not in r:
                                     r["cardinality"] = r.pop("c")
                                 
+                                # Backups if LLM directly provided long keys
                                 if "from" in r and "from_table" not in r: r["from_table"] = r["from"]
                                 if "to" in r and "to_table" not in r: r["to_table"] = r["to"]
                                 if "from_table" in r and "from" not in r: r["from"] = r["from_table"]
                                 if "to_table" in r and "to" not in r: r["to"] = r["to_table"]
 
+                    # Synthesis of fallback visual diagrams if omitted by LLM
                     if step_name == "pipeline_design" and not output.get("mermaid_diagram"):
                         lines = ["graph TD"]
                         for idx, t in enumerate(output.get("tasks", [])):
@@ -381,6 +409,7 @@ def run_step(session, step_name: str, requirements: dict, data_profile: dict, cu
                         if "reasoning_summary" not in output:
                             output["reasoning_summary"] = reasoning
 
+                # Normalizing mermaid keys
                 if isinstance(output, dict) and "mermaid" in output and "mermaid_diagram" not in output:
                     output["mermaid_diagram"] = output.pop("mermaid")
                     
@@ -449,12 +478,14 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
     tables = schema.get("tables", [])
     if not tables: return {"ddl_sql": "-- No tables found", "grant_sql": "", "transform_sql": ""}
 
+    # ─── BUILD SCHEMA CONTEXT (METADATA-DRIVEN) ────────────────────────────────
     arch_result = results.get("architecture_strategy", {})
     if not isinstance(arch_result, dict):
         arch_result = {}
     schema_ctx = build_schema_context(arch_result, schema)
     results["schema_context"] = schema_ctx  # Propagate for prompt injection
 
+    # ─── IMPORT DETERMINISTIC ASSEMBLY HELPER ──────────────────────────────────
     from dwh_assistant.backend.executor import assemble_full_ddl
 
     print(f"\n      [DDL DERIVATIVE] Generating DDL for {len(tables)} tables across "
@@ -465,6 +496,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
     all_transforms = []
 
     batch_size = 12
+    # Batch by layer so each AI call gets tables that share the same schema
     layer_batches = []
     for layer_entry in schema_ctx["layers"]:
         layer_tables = layer_entry["tables"]
@@ -479,6 +511,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
                 }
             })
 
+    # Fallback: if no layer batches (empty context), use old flat batches
     if not layer_batches:
         batch_size_flat = 12
         flat_batches = [tables[i:i + batch_size_flat] for i in range(0, len(tables), batch_size_flat)]
@@ -506,6 +539,7 @@ def run_ddl_derivative(session, requirements, data_profile, results, model, stat
                 if "grant_sql" in res: all_grants.append(res["grant_sql"])
                 if "transform_sql" in res: all_transforms.append(res["transform_sql"])
 
+    # ─── DETERMINISTIC ASSEMBLY (POST-PROCESSING) ──────────────────────────────
     assembled = assemble_full_ddl(
         schema_context=schema_ctx,
         ai_ddl_parts=all_ddls,
@@ -521,6 +555,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
 
     print(f"\n      [PARALLEL SCHEMA] Modeling {len(all_tables)} tables in parallel...")
     
+    # 1. Provide a global inventory of all tables to every batch to ensure FK consistency
     inventory = [t.get("name") for t in all_tables]
     requirements = {**requirements, "global_inventory": inventory}
     
@@ -533,6 +568,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
     def _run_schema_batch(batch):
         _add_ctx(ctx)
         batch_profile = {"tables": batch}
+        # Force the prompt to acknowledge this is a partial batch
         batch_reqs = {**requirements, "batch_context": f"Processing {len(batch)} of {len(all_tables)} tables."}
         return run_step(session, "schema_modeling", batch_reqs, batch_profile, results, model, force_refresh=force_refresh)
 
@@ -548,19 +584,24 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
         if not isinstance(t, dict) or not t.get("name"):
             continue
         t_name = t["name"].upper().strip()
+        # Collapse multiple underscores
         norm_name = re.sub(r'_+', '_', t_name).strip('_')
+        # Plural key comparison (strip trailing S if it exists)
         compare_key = norm_name[:-1] if norm_name.endswith('S') and len(norm_name) > 3 else norm_name
         
         if compare_key in unique_tables:
             existing = unique_tables[compare_key]
+            # Merge columns
             existing_cols = {c.get("name", "").upper(): c for c in existing.get("columns", []) if isinstance(c, dict)}
             for c in t.get("columns", []):
                 if not isinstance(c, dict): continue
                 c_name = c.get("name", "").upper()
                 if c_name not in existing_cols:
                     existing["columns"].append(c)
+            # Prefer the plural or longer name if it exists (commonly plural is standard, e.g. FACT_ORDERS)
             if len(t_name) > len(existing["name"]):
                 existing["name"] = t_name
+            # Preserve layer if not set
             if not existing.get("layer") and t.get("layer"):
                 existing["layer"] = t["layer"]
         else:
@@ -591,6 +632,7 @@ def run_parallel_schema(session, requirements, data_profile, results, model, sta
                         canonical_pk = pk_index[tt_lower]
                         if target_col.lower() != canonical_pk.lower():
                             c["ref"] = f"{target_table}.{canonical_pk}"
+    # Synthesize the complete visual ERD diagram from the consolidated tables list
     from dwh_assistant.utils.parser import synthesize_erd_from_tables
     merged_results["mermaid_diagram"] = synthesize_erd_from_tables(tables)
     print(f"[AI ARCHITECT LOG] Final consolidated ERD diagram synthesized for 'schema_modeling'. Length: {len(merged_results['mermaid_diagram'])} chars.\n")
@@ -622,6 +664,7 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
             results["schema_modeling"] = fut_schema.result()
             results["metadata_analysis"] = fut_meta.result()
         st.session_state["generation_results"] = results
+        # SYNC individual step results to session_state for real-time UI updates
         st.session_state["architecture_strategy"] = results.get("architecture_strategy")
         st.session_state["schema_modeling"] = results.get("schema_modeling")
         st.session_state["metadata_analysis"] = results.get("metadata_analysis")
@@ -635,12 +678,14 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
             results["pipeline_design"] = fut_pipe.result()
             results["governance_security"] = fut_gov.result()
         st.session_state["generation_results"] = results
+        # SYNC individual step results to session_state
         st.session_state["relationship_design"] = results.get("relationship_design")
         st.session_state["pipeline_design"] = results.get("pipeline_design")
         st.session_state["governance_security"] = results.get("governance_security")
         print("\n--- PHASE 4: DDL GENERATION ---")
         ddl_res = run_ddl_derivative(session, requirements, data_profile, results, model, status_callback)
         results["ddl_generation"] = ddl_res
+        # Propagate schema_context to session state for Design Center rendering
         if "schema_context" in results:
             st.session_state["schema_context"] = results["schema_context"]
         st.session_state["generation_results"] = results
@@ -651,8 +696,11 @@ def run_all(session, requirements: dict, data_profile: dict, model: str, status_
             
             results["final_blueprint"] = fut_final.result()
             results["history"] = fut_hist.result()
+        # Some components expect "schema_design" but we generate "schema_modeling"
+        results["schema_design"] = results.get("schema_modeling")
         results["blueprint"] = results.get("final_blueprint")
         
+        # Extract documentation if needed
         if "final_blueprint" in results and isinstance(results["final_blueprint"], dict):
             results["documentation_design"] = results["final_blueprint"].get("documentation") or results["final_blueprint"]
         

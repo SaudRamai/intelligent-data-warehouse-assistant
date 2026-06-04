@@ -1,6 +1,7 @@
 import json
 from typing import Dict, Any, List
 import datetime
+# 1. MASTER SYSTEM PROMPT (Industrial Enforcement)
 
 SYSTEM_PROMPT = """
 You are an Enterprise Data Architecture AI integrated into a multi-stage orchestration pipeline.
@@ -89,6 +90,7 @@ NAMING_REGISTRY = {
     "ai_model_prefix": "model_", "ai_app_prefix": "app_", "ai_agent_prefix": "agent_"
 }
 
+# STEP 1: Architecture Strategy
 ARCH_STRATEGY_PROMPT = """
 Step: Architecture Strategy
 
@@ -163,6 +165,7 @@ OUTPUT (JSON):
 }
 """
 
+# STEP 2: Physical Schema Modeling
 SCHEMA_MODELING_PROMPT = """
 Step: Schema Design
 
@@ -223,6 +226,7 @@ OUTPUT (JSON):
 }
 """
 
+# STEP 2.5: Metadata Analysis
 METADATA_PROMPT = """
 Step: Metadata & Lineage Analysis
 Schema: __schema__
@@ -248,6 +252,7 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
+# STEP 3: Relationship Design
 RELATIONSHIP_PROMPT = """
 Step: Relationship Design
 Schema: __schema__
@@ -271,6 +276,7 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
+# STEP 3: Derivative Steps
 PIPELINE_PROMPT = """
 Step: Pipeline Design
 
@@ -412,6 +418,7 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
+# STEP 6: Final Blueprint
 FINAL_BLUEPRINT_PROMPT = """
 Step: Final Blueprint Synthesis
 Results: __results__
@@ -439,13 +446,17 @@ OUTPUT FORMAT (JSON ONLY):
   }
 }
 """
+# STEP MAP (Comprehensive)
 
 STEP_MAP = {
     "architecture_strategy":  "architecture",
     "schema_modeling":        "schema_modeling",
-        "pipeline_design":        "pipeline",
+    "schema_design":          "schema_modeling",
+    "pipeline_design":        "pipeline",
     "governance_security":    "gov_rbac",
-            "ddl_generation":         "ddl",
+    "gov_policies":           "gov_rbac",
+    "gov_compliance":          "gov_rbac",
+    "ddl_generation":         "ddl",
     "history":                "history",
     "metadata_analysis":      "metadata_analysis",
     "relationship_design":    "relationship_design",
@@ -480,7 +491,7 @@ def compress_profile(profile: Dict[str, Any], mode: str = "meso") -> str:
 
 def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
     arch = results.get("architecture_strategy", {})
-    schema = results.get("schema_modeling") or {}
+    schema = results.get("schema_modeling") or results.get("schema_design") or {}
     rel = results.get("relationship_design") or {}
     
     if not isinstance(arch, dict): arch = {}
@@ -490,6 +501,7 @@ def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
     tables = schema.get("tables", [])
     if not isinstance(tables, list): tables = []
 
+    # Extract canonical architecture subset to inject directly into downstream context
     arch_subset = {
         "architecture_type": arch.get("architecture_type", "AI Recommended"),
         "modeling_paradigm": arch.get("modeling_paradigm", "Dynamic Paradigm"),
@@ -502,41 +514,44 @@ def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
     if arch and step_name != "architecture":
         print(f"      [ARCHITECTURE REUSE] Reusing canonical context ({arch_subset['architecture_type']} / {arch_subset['modeling_paradigm']}) for {step_name}")
 
-    def _extract_tables(limit, include_flags=False, include_pk_fk=False, include_cols=True):
-        res = []
-        for t in tables[:limit]:
-            if isinstance(t, dict):
-                entry = {"n": t.get("name"), "l": t.get("layer")}
-                if include_cols:
-                    cols = []
-                    for c in t.get("columns", []):
-                        if isinstance(c, dict):
-                            if include_pk_fk:
-                                if c.get("pk") or c.get("fk") or "sk" in str(c.get("name")) or "id" in str(c.get("name")):
-                                    cols.append({"n": c.get("name"), "t": c.get("type"), "pk": c.get("pk"), "fk": c.get("fk"), "ref": c.get("ref")})
-                            else:
-                                col_data = {"n": c.get("name"), "t": c.get("type")}
-                                if include_flags:
-                                    col_data["flags"] = c.get("flags", [])
-                                cols.append(col_data)
-                    entry["cols"] = cols
-                res.append(entry)
-        return res
-
     if step_name == "pipeline":
-        return {"arch": arch_subset, "tables": _extract_tables(30)}
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type")} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
+        return {"arch": arch_subset, "tables": safe_tables}
 
     elif step_name == "gov_rbac":
-        return {"arch": arch_subset, "tables": _extract_tables(30, include_flags=True)}
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type"), "flags": c.get("flags", [])} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
+        return {"arch": arch_subset, "tables": safe_tables}
         
     elif step_name == "relationship_design":
-        return {"arch": arch_subset, "tables": _extract_tables(len(tables), include_pk_fk=True)}
+        light_tables = []
+        for t in tables:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type"), "pk": c.get("pk"), "fk": c.get("fk"), "ref": c.get("ref")} for c in t.get("columns", []) if isinstance(c, dict) and (c.get("pk") or c.get("fk") or "sk" in str(c.get("name")) or "id" in str(c.get("name")))]
+                light_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
+        return {"arch": arch_subset, "tables": light_tables}
         
     elif step_name == "metadata_analysis":
-        return {"arch": arch_subset, "tables": _extract_tables(40, include_flags=True)}
+        safe_tables = []
+        for t in tables[:40]:
+            if isinstance(t, dict):
+                cols = [{"n": c.get("name"), "t": c.get("type"), "flags": c.get("flags", [])} for c in t.get("columns", []) if isinstance(c, dict)]
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer"), "cols": cols})
+        return {"arch": arch_subset, "tables": safe_tables}
         
     elif step_name == "history":
-        return {"arch": arch_subset, "tables": _extract_tables(30, include_cols=False)}
+        safe_tables = []
+        for t in tables[:30]:
+            if isinstance(t, dict):
+                safe_tables.append({"n": t.get("name"), "l": t.get("layer")})
+        return {"arch": arch_subset, "tables": safe_tables}
 
     elif step_name == "final_blueprint":
         return {
@@ -591,6 +606,8 @@ def build_prompt(step_name: str, requirements: Dict[str, Any], data_profile: Dic
              .replace("__layers__", layers_txt)
              .replace("__schema__", json.dumps(pruned)))
     elif step == "ddl":
+        # Build schema_context from pre-computed entry (set by orchestrator build_schema_context)
+        # Falls back to prune_for_ddl on raw schema if context not yet available
         schema_ctx = results.get("schema_context") or {}
         if not schema_ctx:
             schema_src = results.get("target_table_schema") or results.get("schema_modeling") or {}

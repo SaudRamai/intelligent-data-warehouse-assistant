@@ -9,49 +9,46 @@ This document provides a deep-dive, technical blueprint for deploying, configuri
 The application is a state-of-the-art **AI Orchestrator** that bridges business requirements with technical Snowflake infrastructure.
 
 ### Technology Stack
-*   **Application Framework**: Streamlit 1.32.0 (Multi-page Architecture)
-*   **Data Processing**: Snowflake Snowpark for Python 1.18.0
+*   **Application Framework**: Streamlit (Multi-page Architecture)
+*   **Data Processing**: Snowflake Snowpark for Python
 *   **AI Engine**: Snowflake Cortex (Native Large Language Models)
-*   **Visualization**: Mermaid.js & Streamlit Flow
-*   **Styling**: Custom CSS (Outfit & JetBrains Mono typography)
+*   **Visualization**: Mermaid.js & SVG Pan Zoom
+*   **Styling**: Custom CSS (Outfit typography, Glassmorphism)
 
 ---
 
 ## 2. Core Module Deep-Dive
 
-### 2.1 Backend: Connection & Security (`snowflake_conn.py`)
+### 2.1 Backend: Connection & Security (`dwh_assistant/backend/snowflake.py`)
 The connection layer is designed for enterprise resilience, featuring an automated "Circuit Breaker."
 
 *   **Session Management**: Uses `st.cache_resource` to persist the Snowpark session. It includes a heartbeat check (`SELECT 1`) to ensure the connection hasn't timed out.
 *   **Circuit Breaker (Lockout Logic)**:
-    *   **Trigger**: If an authentication error (Invalid Credentials, Account Locked) is detected, `_set_lockout()` writes a timestamped entry to `.streamlit/snowflake_lockout.json`.
-    *   **Protection**: `_check_lockout()` blocks all subsequent login attempts for a 60-second cooldown period, preventing local brute-force or accidental account suspension by Snowflake.
+    *   **Trigger**: If an authentication error is detected, it writes a timestamped entry to `.streamlit/snowflake_lockout.json`.
+    *   **Protection**: Blocks all subsequent login attempts for a 60-second cooldown period, preventing local brute-force or accidental account suspension by Snowflake.
 *   **Auto-Provisioning**:
     *   `ensure_session()` automatically detects if the `ARCHITECTURE_STORE` database exists.
-    *   If missing, it executes `setup.sql` to build the required persistence layer.
-    *   It also attempts to grant the `SNOWFLAKE.CORTEX_USER` database role to the current active role.
+    *   If missing, it automatically creates the required schemas and tables to build the persistence layer.
 
-### 2.2 AI Logic: Cortex Engine (`cortex_engine.py`)
+### 2.2 AI Logic: Cortex Engine (`dwh_assistant/backend/executor.py` & `prompts.py`)
 This module handles the non-deterministic nature of LLMs with surgical precision.
 
-*   **SQL Literal Construction**: Uses raw SQL `SELECT SNOWFLAKE.CORTEX.COMPLETE(...)` with dollar-sign quoting (`$$...$$`) to handle complex prompt characters safely.
 *   **JSON Self-Healing**:
     *   `clean_json_string()`: Removes LLM-generated comments, fixes single-quote delimiters, and cleans trailing commas.
     *   `fix_truncated_json()`: A stack-based parser that automatically closes unclosed braces `{}` or brackets `[]` if the LLM output is cut off due to token limits.
-*   **Model Fallback Strategy**: If the primary model (e.g., Claude 3.5 Sonnet) fails due to regional throughput limits, the engine automatically falls back to secondary models (Mixtral 8x7b, Llama 3.1 8b) to ensure service continuity.
+*   **Multi-Pass Parser**: Safely unwraps double-encoded JSON payloads returned from Cortex and stitches together multi-round generation requests.
 
-### 2.3 Deployment Logic: Executor (`deploy_executor.py`)
+### 2.3 Orchestration & UI (`dwh_assistant/backend/orchestrator.py` & `pages/`)
 Handles the transition from "Design" to "Live" with transactional-like safety.
 
-*   **Atomic Execution**: Splinters the generated DDL SQL into individual statements and executes them sequentially.
-*   **Rollback Engine**: If any statement fails, the `rollback()` function parses the previously executed statements. It identifies `CREATE TABLE` commands and issues `DROP TABLE IF EXISTS` commands to leave the Snowflake environment clean.
-*   **Audit Logging**: Every deployment attempt (success or failure) is logged to the `DEPLOY_LOG` table with metadata on the failed statement and execution time.
+*   **Multi-Page Application**: The application flow is broken into Intake Form, Data Profile, AI Generation, and Design Center.
+*   **Component Architecture**: UI components and CSS are organized within `dwh_assistant/components/` (e.g., `mermaid_renderer.py`, `styles.py`).
 
 ---
 
-## 3. Database Schema (`setup.sql`)
+## 3. Database Schema
 
-The persistence layer consists of two mission-critical tables:
+The persistence layer consists of two mission-critical tables created automatically:
 
 ### `PROJECTS` Table
 Stores the entire state of the AI's architectural design.
@@ -59,7 +56,6 @@ Stores the entire state of the AI's architectural design.
 *   **REQUIREMENTS (VARIANT)**: Stores JSON from the Intake Form (Industry, Goals, KPIs).
 *   **ARCHITECTURE / SCHEMA_DESIGN (VARIANT)**: Stores the AI-generated JSON blueprints.
 *   **DDL_SQL (TEXT)**: The ready-to-execute SQL code.
-*   **MERMAID_DIAGRAM (TEXT)**: The code used to render the visual architecture.
 
 ### `DEPLOY_LOG` Table
 Audit trail for infrastructure changes.
@@ -70,17 +66,15 @@ Audit trail for infrastructure changes.
 
 ---
 
-## 4. UI/UX Design System (`styles.py`)
+## 4. UI/UX Design System (`dwh_assistant/components/styles.py`)
 
 The application uses a **Premium Midnight Navy** design language.
 
 *   **Typography**:
     *   `Outfit`: Used for all UI text, buttons, and headers for a modern, clean look.
-    *   `JetBrains Mono`: Used for code blocks and technical output.
 *   **Design Tokens**:
     *   `.glass-card`: Semi-transparent navy background (`rgba(0, 34, 68, 0.9)`) with backdrop blur.
     *   `.accent-text`: Sky blue (`#38BDF8`) for highlights.
-    *   Custom Hover Effects: Buttons feature smooth transitions and subtle drop shadows.
 
 ---
 
@@ -89,24 +83,19 @@ The application uses a **Premium Midnight Navy** design language.
 ### Prerequisites
 *   **Snowflake Account**: Region must support Cortex AI models.
 *   **Network**: The host machine must have outbound access to Snowflake.
-*   **Python**: Version 3.9 is mandated by the `environment.yml` specification.
 
 ### Installation
-1.  **Environment Setup**:
-    ```bash
-    conda env create -f dwh_assistant/environment.yml
-    conda activate dwh_assistant
-    ```
-2.  **Secrets Configuration**:
-    Create `dwh_assistant/.streamlit/secrets.toml`:
+1.  **Secrets Configuration**:
+    Create `.streamlit/secrets.toml`:
     ```toml
-    SNOWFLAKE_ACCOUNT = "..."
-    SNOWFLAKE_USER = "..."
-    SNOWFLAKE_PASSWORD = "..."
-    SNOWFLAKE_ROLE = "ACCOUNTADMIN"
-    SNOWFLAKE_WAREHOUSE = "COMPUTE_WH"
+    [connections.snowflake]
+    account = "..."
+    user = "..."
+    password = "..."
+    role = "ACCOUNTADMIN"
+    warehouse = "COMPUTE_WH"
     ```
-3.  **Launch**:
+2.  **Launch**:
     ```bash
     python -m streamlit run streamlit_app.py
     ```
@@ -116,7 +105,7 @@ The application uses a **Premium Midnight Navy** design language.
 ## 6. Security Governance
 
 *   **RBAC**: The user role must possess `CREATE DATABASE` and `CREATE SCHEMA` privileges on the account to allow the assistant to provision new environments.
-*   **Data Privacy**: Profiling uses a configurable sampling depth (default 10 rows) to ensure minimal data exposure during the AI design phase.
+*   **Data Privacy**: Profiling uses a configurable sampling depth to ensure minimal data exposure during the AI design phase.
 
 ---
 

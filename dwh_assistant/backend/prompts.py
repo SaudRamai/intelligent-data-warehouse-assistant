@@ -1,7 +1,6 @@
 import json
 from typing import Dict, Any, List
 import datetime
-# 1. MASTER SYSTEM PROMPT (Industrial Enforcement)
 
 SYSTEM_PROMPT = """
 You are an Enterprise Data Architecture AI integrated into a multi-stage orchestration pipeline.
@@ -65,32 +64,8 @@ SCHEMA VIEW RULES (Warehouse Tab):
 - Must NOT include source systems, ingestion layers, or pipeline flows.
 """
 
-ARCH_TYPES = {
-    "three_tier": "Three-tier Architecture",
-    "cloud_dwh": "Cloud Data Warehouse Architecture",
-    "lakehouse": "Lakehouse Architecture",
-    "medallion": "Medallion Architecture",
-    "modern_elt": "Modern ELT Architecture"
-}
 
-PARADIGM_RULES = {
-    "STAR_SCHEMA": "Star Schema Modeling",
-    "SNOWFLAKE": "Snowflake Schema Modeling",
-    "GALAXY": "Galaxy Schema (Fact Constellation)",
-    "DATA_VAULT": "Data Vault 2.0 Modeling",
-    "NORMALIZED": "Normalized 3NF Modeling",
-    "EVENT_STREAM": "Event Stream / Topic Modeling"
-}
 
-NAMING_REGISTRY = {
-    "fact_prefix": "FACT_", "dim_prefix": "DIM_",
-    "hub_prefix": "hub_", "lnk_prefix": "lnk_", "sat_prefix": "sat_",
-    "stg_prefix": "stg_", "raw_prefix": "raw_",
-    "key_format": "<entity>_sk", "feature_prefix": "FACT_features_",
-    "ai_model_prefix": "model_", "ai_app_prefix": "app_", "ai_agent_prefix": "agent_"
-}
-
-# STEP 1: Architecture Strategy
 ARCH_STRATEGY_PROMPT = """
 Step: Architecture Strategy
 
@@ -98,6 +73,7 @@ Profile: __profile__
 Requirements: __req__
 
 ANALYZE AND DECIDE:
+Analyze, validate, and optimize the proposed data warehouse architecture by reviewing its design, syntax, and overall structure. Generate an AI-recommended architecture that aligns with business objectives, data sources, reporting requirements, scalability expectations, security and compliance standards, performance goals, and future growth plans. Identify any architectural gaps, inconsistencies, or optimization opportunities and provide recommendations for improvement. Ensure you generate all syntax, especially Mermaid JSON syntax, correctly and flawlessly.
 
 Evaluate profile characteristics:
 - Data volume, velocity, variety
@@ -150,6 +126,10 @@ MANDATORY Adaptation Rules — you MUST follow all of these:
 6. Use `classDef` and `class` statements to style your layers professionally. Use distinct colors for each architectural stage.
 7. Output ONLY high-level architectural layers and core stages. NO table names, NO column names, NO schema objects.
 
+MEDALLION ARCHITECTURE MERMAID TEMPLATE EXAMPLE (JSON-Escaped):
+If you choose Medallion Architecture, your "mermaid_diagram" string must be structured exactly like this template, dynamically populated with the real system names. Pay close attention to the escaping of newlines (`\\n`) and the use of single quotes (`'`) for labels to avoid breaking JSON parsers:
+"flowchart LR\\n  subgraph Ingest['Ingestion Layer']\\n    S1['Source Systems']\\n  end\\n  subgraph Bronze['Bronze Layer (Raw)']\\n    B1['Raw Landing']\\n  end\\n  subgraph Silver['Silver Layer (Cleaned)']\\n    SL1['Conformed Data']\\n  end\\n  subgraph Gold['Gold Layer (Curated)']\\n    G1['Business Aggregates']\\n  end\\n  subgraph Consume['Consumption Layer']\\n    C1['BI Dashboards']\\n  end\\n  S1 --> B1\\n  B1 --> SL1\\n  SL1 --> G1\\n  G1 --> C1\\n  classDef ingest fill:#f0fdfa,stroke:#0d9488,stroke-width:2px;\\n  classDef bronze fill:#fffbeb,stroke:#d97706,stroke-width:2px;\\n  classDef silver fill:#eff6ff,stroke:#2563eb,stroke-width:2px;\\n  classDef gold fill:#faf5ff,stroke:#7c3aed,stroke-width:2px;\\n  classDef consume fill:#fff1f2,stroke:#e11d48,stroke-width:2px;\\n  class Ingest ingest;\\n  class Bronze bronze;\\n  class Silver silver;\\n  class Gold gold;\\n  class Consume consume;"
+
 OUTPUT (JSON):
 {
   "architecture_type": "YOUR_CHOICE",
@@ -165,7 +145,6 @@ OUTPUT (JSON):
 }
 """
 
-# STEP 2: Physical Schema Modeling
 SCHEMA_MODELING_PROMPT = """
 Step: Schema Design
 
@@ -226,7 +205,6 @@ OUTPUT (JSON):
 }
 """
 
-# STEP 2.5: Metadata Analysis
 METADATA_PROMPT = """
 Step: Metadata & Lineage Analysis
 Schema: __schema__
@@ -252,7 +230,6 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
-# STEP 3: Relationship Design
 RELATIONSHIP_PROMPT = """
 Step: Relationship Design
 Schema: __schema__
@@ -276,7 +253,6 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
-# STEP 3: Derivative Steps
 PIPELINE_PROMPT = """
 Step: Pipeline Design
 
@@ -418,7 +394,6 @@ OUTPUT FORMAT (JSON ONLY):
 }
 """
 
-# STEP 6: Final Blueprint
 FINAL_BLUEPRINT_PROMPT = """
 Step: Final Blueprint Synthesis
 Results: __results__
@@ -446,7 +421,6 @@ OUTPUT FORMAT (JSON ONLY):
   }
 }
 """
-# STEP MAP (Comprehensive)
 
 STEP_MAP = {
     "architecture_strategy":  "architecture",
@@ -501,7 +475,6 @@ def prune_results(results: Dict[str, Any], step_name: str) -> Dict[str, Any]:
     tables = schema.get("tables", [])
     if not isinstance(tables, list): tables = []
 
-    # Extract canonical architecture subset to inject directly into downstream context
     arch_subset = {
         "architecture_type": arch.get("architecture_type", "AI Recommended"),
         "modeling_paradigm": arch.get("modeling_paradigm", "Dynamic Paradigm"),
@@ -606,8 +579,6 @@ def build_prompt(step_name: str, requirements: Dict[str, Any], data_profile: Dic
              .replace("__layers__", layers_txt)
              .replace("__schema__", json.dumps(pruned)))
     elif step == "ddl":
-        # Build schema_context from pre-computed entry (set by orchestrator build_schema_context)
-        # Falls back to prune_for_ddl on raw schema if context not yet available
         schema_ctx = results.get("schema_context") or {}
         if not schema_ctx:
             schema_src = results.get("target_table_schema") or results.get("schema_modeling") or {}
@@ -774,8 +745,7 @@ STEP_JSON_SCHEMAS = {
 
 _FALLBACK_SCHEMA = {"type": "object"}
 
-def get_json_schema(task_type: str) -> dict:
-    return STEP_JSON_SCHEMAS.get(task_type, _FALLBACK_SCHEMA)
+
 
 SYSTEM_PROMPT_SUFFIXES = {
     "claude-3-5-sonnet": "\n\nCRITICAL: Output ONLY raw JSON. No thinking tags. No preamble. Start response with { directly.",
@@ -916,6 +886,3 @@ Before output, ensure:
 """
         return base + suffix
     return SYSTEM_PROMPT + suffix
-CONTINUATION_PROMPT = """
-Your previous output was truncated. Please continue generating the JSON content from the exact character where it left off. Do not repeat the previous content, do not start a new JSON block, and do not wrap in markdown tags. Output ONLY the remaining valid JSON characters.
-"""

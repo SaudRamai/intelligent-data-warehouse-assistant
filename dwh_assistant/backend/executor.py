@@ -81,10 +81,10 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
 
     import re, json, ast
 
-    # 1. Strip Claude thinking blocks
+    import re, json, ast
+
     text = re.sub(r'<thinking>.*?</thinking>', '', raw_text, flags=re.DOTALL).strip()
 
-    # Helper to peel off JSON envelopes recursively
     def unwrap_envelope(obj):
         while isinstance(obj, dict):
             if "choices" in obj and isinstance(obj["choices"], list) and len(obj["choices"]) > 0:
@@ -104,7 +104,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             if "content" in obj and isinstance(obj["content"], (dict, list, str)):
                 obj = obj["content"]
                 continue
-            # If it's a dict with a single key mapping to an embedded JSON string, unbox it
             if len(obj) == 1:
                 val = list(obj.values())[0]
                 if isinstance(val, str) and (val.strip().startswith('{') or val.strip().startswith('[')):
@@ -116,7 +115,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             break
         return obj
 
-    # Helper to strip markdown fences
     def clean_fences(s: str) -> str:
         s = s.strip()
         if "```json" in s:
@@ -125,7 +123,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             s = re.sub(r'```\s*(.*?)\s*```', r'\1', s, flags=re.DOTALL | re.IGNORECASE)
         return s.strip()
 
-    # 1a. Surgical unboxing of double-encoded stringified JSON payloads from Snowflake AI_COMPLETE
     clean_start = text.strip()
     is_envelope = clean_start.startswith('{') and (('"choices"' in clean_start[:150]) or ('"messages"' in clean_start[:150]))
     
@@ -139,7 +136,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
         
         if payload_str:
             import re
-            # Repair stray backslashes escaping closing quotes followed by structural keys
             keys_to_repair = [
                 "tables", "mermaid_diagram", "design_rationale", "rel", "tasks", "roles", "mask", 
                 "compliance_checklist", "lin", "tags", "architecture_type", "modeling_paradigm", 
@@ -209,7 +205,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 if isinstance(unwrapped, (dict, list)): return unwrapped
             except Exception: pass
 
-    # Let's try standard multi-pass unboxing loop
     current = clean_fences(text)
     
     while isinstance(current, str):
@@ -224,7 +219,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
         except Exception:
             pass
             
-        # Try finding substring from first { or [
         start_b = c_str.find('{')
         start_k = c_str.find('[')
         idx = -1
@@ -243,7 +237,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
             except Exception:
                 pass
                 
-            # Try unicode_escape decoding if double backslashes exist
             if '\\' in cand:
                 try:
                     decoded = cand.encode('utf-8').decode('unicode_escape')
@@ -253,12 +246,9 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 except Exception:
                     pass
 
-            # Strip problem internal quotes inside Mermaid diagram nodes to prevent fatal decode crashes
             cleaned_nodes = re.sub(r'\[\\*["\'](.*?)\\*["\']\]', r'[\1]', cand)
             cleaned_nodes = re.sub(r'\(\\*["\'](.*?)\\*["\']\)', r'(\1)', cleaned_nodes)
 
-            # Highly robust workflow: unescape double encoded stringified JSON, then use clean_json_string
-            # This guarantees that multiline Mermaid strings with embedded newlines are perfectly escaped
             from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
             
             cur_cand = cleaned_nodes
@@ -270,7 +260,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 except Exception:
                     pass
                     
-                # Apply clean_json_string directly to the cur_cand variant
                 try:
                     cleaned_str = clean_json_string(cur_cand)
                     parsed = json.loads(cleaned_str)
@@ -279,7 +268,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 except Exception:
                     pass
                     
-                # Apply fix_truncated_json
                 try:
                     repaired_str = fix_truncated_json(clean_json_string(cur_cand))
                     parsed = json.loads(repaired_str)
@@ -288,7 +276,6 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 except Exception:
                     pass
                     
-                # Safe eval fallback
                 try:
                     res_dict = ast.literal_eval(cur_cand)
                     unwrapped = unwrap_envelope(res_dict)
@@ -297,14 +284,12 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                     pass
                     
                 if '\\' in cur_cand:
-                    # Replace sequences like \\" -> " and \\n -> \n to unwrap one layer of escaping
                     cur_cand = cur_cand.replace('\\\\"', '\\"').replace('\\"', '"').replace('\\n', '\n')
                 else:
                     break
 
         break
 
-    # Final absolute fallback: let's try clean_json_string on the full clean_fences text
     from dwh_assistant.utils.parser import clean_json_string, fix_truncated_json
     clean_full = clean_json_string(clean_fences(text))
     try:
@@ -388,7 +373,6 @@ def structured_merge(base: dict, update: dict) -> dict:
             if isinstance(base_val, dict) and isinstance(v, dict):
                 merged[k] = structured_merge(base_val, v)
             elif isinstance(base_val, list) and isinstance(v, list):
-                # Smart deduplication by 'name' or identity to backfill incomplete elements
                 seen_names = {}
                 combined_list = []
                 for item in base_val + v:
@@ -480,7 +464,6 @@ def normalize_extracted_payload(parsed: dict, task_type: str) -> dict:
                     if isinstance(item, dict): _map_aliases(item)
         target.update(to_add)
         
-        # Intercept structured diagram dictionary and synthesize pure string representation
         if "diagram" in target and isinstance(target["diagram"], dict):
             target["mermaid_diagram"] = synthesize_mermaid_from_ast(target["diagram"], task_type)
         elif "mermaid" in target and isinstance(target["mermaid"], dict):
@@ -531,7 +514,6 @@ def call_cortex(session, prompt: str, task_type: str, model: str = "mistral-larg
 
     for attempt in range(max_retries):
         try:
-            # Scale token budgets dynamically per attempt to allow incremental growth and prevent truncation
             current_limit = base_limit + (attempt * 4096)
             print(f"      [AI_COMPLETE] {model} | attempt {attempt+1}/{max_retries} | tokens={current_limit}", end="", flush=True)
 
@@ -565,7 +547,6 @@ def call_cortex(session, prompt: str, task_type: str, model: str = "mistral-larg
             if not raw_output:
                 raise Exception("Empty response from Cortex")
 
-            # Invoke robust multi-pass safe parse to resolve double-encoded strings and envelope wrappers flawlessly
             parsed = _safe_parse(raw_output, task_type)
 
             if isinstance(parsed, dict) and "raw_unparsed" in parsed:
@@ -597,19 +578,15 @@ def _is_truncated(raw: str) -> bool:
         return True
     stripped = raw.strip()
     
-    # Strip trailing codeblock fences for accurate termination inspection
     if stripped.endswith("```"):
         stripped = re.sub(r'\s*```$', '', stripped).strip()
         
-    # 1. Structural Closure Check (If it ends cleanly with a standard closing boundary, trust its integrity)
     if stripped.endswith("}") or stripped.endswith("]"):
         return False
         
-    # 2. Simple termination check
     if stripped[-1] not in ('}', ']', '"', ' '):
         return True
         
-    # 3. Naive balance check fallback
     open_braces = stripped.count('{')
     close_braces = stripped.count('}')
     if open_braces > close_braces:
@@ -627,10 +604,8 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
     result = call_cortex(session, prompt, task_type, model, max_retries)
     
     if result["success"]:
-        # Double check: if it succeeded but result is empty or not what we want, we might still check for truncation
         return result
     
-    # If it failed but we have raw output, check if it's because of truncation
     raw = result.get("raw", "")
     if raw and _is_truncated(raw):
         print(f"      [CONTINUATION] Detected truncated output, requesting continuation...", end="", flush=True)
@@ -689,11 +664,9 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
             c1 = raw.rstrip()
             c2 = c2_raw.strip()
             
-            # 1. Clean markdown fences from c2 if present
             c2 = re.sub(r'^```(?:json|mermaid|sql)?\s*', '', c2, flags=re.IGNORECASE)
             c2 = re.sub(r'\s*```$', '', c2).strip()
             
-            # 2. Derive base AST from truncated chunk natively
             dict1 = extract_json(raw, task_type)
             if not isinstance(dict1, dict) or "raw_unparsed" in dict1:
                 try: dict1 = json.loads(fix_truncated_json(clean_json_string(raw)))
@@ -704,13 +677,11 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
                 dict2 = extract_json(c2, task_type)
                 if not isinstance(dict2, dict) or "raw_unparsed" in dict2: dict2 = {}
             else:
-                # Wrap fragment contents to extract populated sub-arrays cleanly
                 wrapped_c2 = "{" + re.sub(r'^(?:"mermaid_diagram"|mermaid_diagram)?\s*:\s*', '', c2, flags=re.IGNORECASE)
                 if not wrapped_c2.endswith("}"): wrapped_c2 += "}"
                 try: dict2 = json.loads(fix_truncated_json(clean_json_string(wrapped_c2)))
                 except Exception: dict2 = {}
                 
-            # Try raw text stitch extraction as fallback primary if merge is lean
             stitched = c1 + c2
             stitched_parsed = extract_json(stitched, task_type)
             if isinstance(stitched_parsed, dict) and "raw_unparsed" not in stitched_parsed:
@@ -718,7 +689,6 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
             else:
                 base_ast = dict1
                 
-            # Perform canonical structural merge over both object graphs natively
             parsed = structured_merge(base_ast, dict2)
             
             if isinstance(parsed, dict) and "raw_unparsed" not in parsed:
@@ -830,7 +800,6 @@ def assemble_full_ddl(
 
     layers = schema_context.get("layers", []) if isinstance(schema_context, dict) else []
 
-    # ── 1. Deterministic schema creation block ──────────────────────────────
     schema_header_lines = ["-- ========================================================================="]
     schema_header_lines.append("-- SCHEMA CREATION (Derived from AI Architecture Strategy)")
     schema_header_lines.append("-- =========================================================================")
@@ -842,8 +811,6 @@ def assemble_full_ddl(
 
     schema_creation_sql = "\n".join(schema_header_lines)
 
-    # ── 2. Merge & clean AI DDL blocks ──────────────────────────────────────
-    # Ensure each DDL part ends with a semicolon before joining them, to prevent merging DDL statements
     ai_ddl_cleaned = []
     for part in ai_ddl_parts:
         if not part: continue
@@ -854,27 +821,20 @@ def assemble_full_ddl(
 
     raw_ddl_text = "\n\n".join(ai_ddl_cleaned)
 
-    # Enforce CREATE TABLE IF NOT EXISTS (never skip IF NOT EXISTS)
     raw_ddl_text = re.sub(
         r'\bCREATE\s+TABLE\s+(?!IF\s+NOT\s+EXISTS)',
         'CREATE TABLE IF NOT EXISTS ',
         raw_ddl_text, flags=re.IGNORECASE
     )
-    # Strip any HYBRID TABLE references (Snowflake rule: standard tables only)
     raw_ddl_text = re.sub(r'\bCREATE\s+HYBRID\s+TABLE\b', 'CREATE TABLE', raw_ddl_text, flags=re.IGNORECASE)
-    # Strip any lingering SCHEMA creation statements in AI output (we emit ours deterministically)
     raw_ddl_text = re.sub(r'CREATE\s+SCHEMA\s+IF\s+NOT\s+EXISTS\s+\S+\s*;?', '', raw_ddl_text, flags=re.IGNORECASE)
 
-    # Strip FOREIGN KEY constraints to prevent deployment failures on missing/hallucinated AI dimensions
     fk_pattern = r'(?i),\s*(?:CONSTRAINT\s+[a-zA-Z0-9_]+\s+)?FOREIGN\s+KEY\s*\([^)]+\)\s*REFERENCES\s+[a-zA-Z0-9_.\"\'\[\]]+(?:\s*\([^)]+\))?(?:\s*ON\s+(?:DELETE|UPDATE)\s+(?:CASCADE|SET\s+NULL|SET\s+DEFAULT|RESTRICT|NO\s+ACTION))?'
     raw_ddl_text = re.sub(fk_pattern, '', raw_ddl_text)
-    # Catch any remaining trailing commas before a closing parenthesis (caused by stripping the last column)
     raw_ddl_text = re.sub(r',\s*\)', '\n)', raw_ddl_text)
 
-    # ── 3. Split, deduplicate, and order statements ──────────────────────────
     stmts_raw = [s.strip() for s in raw_ddl_text.split(";") if s.strip()]
 
-    # Remove pure-comment-only statements
     def _has_sql(stmt: str) -> bool:
         no_comments = re.sub(r'--.*?(\n|$)', '', stmt, flags=re.MULTILINE)
         no_comments = re.sub(r'/\*.*?\*/', '', no_comments, flags=re.DOTALL)
@@ -882,7 +842,6 @@ def assemble_full_ddl(
 
     stmts_raw = [s for s in stmts_raw if _has_sql(s)]
 
-    # Deduplicate by normalised statement body
     seen: Dict[str, str] = {}
     for stmt in stmts_raw:
         key = re.sub(r'\s+', ' ', stmt.upper()).strip()
@@ -891,10 +850,8 @@ def assemble_full_ddl(
 
     unique_stmts = list(seen.values())
 
-    # Sort: DIM tables first (so FKs from FACT resolve), then FACT, then everything else
     def _sort_key(s: str) -> tuple:
         su = s.upper()
-        # Match both SCHEMA.DIM_TABLE and bare DIM_TABLE
         if re.search(r'(?:^|[\s.(])DIM_', su):   return (0, s)
         if re.search(r'(?:^|[\s.(])(HUB_|LNK_|SAT_)', su): return (1, s)
         if re.search(r'(?:^|[\s.(])(RAW_|STG_|STAGE_|BRONZE)', su): return (2, s)
@@ -904,7 +861,6 @@ def assemble_full_ddl(
 
     unique_stmts.sort(key=_sort_key)
 
-    # ── 4. Final DDL: schema creation header + ordered table DDL ────────────
     table_ddl_block = ";\n\n".join(unique_stmts)
     if table_ddl_block:
         table_ddl_block += ";"
@@ -916,10 +872,8 @@ def assemble_full_ddl(
         + (table_ddl_block or "-- No DDL statements generated by AI.")
     )
 
-    # ── 5. Grants ───────────────────────────────────────────────────────────
     raw_grant_sql = "\n\n".join(filter(None, ai_grant_parts)) or ""
     
-    # Extract all CREATE ROLE statements to move them to the top
     grant_stmts = [s.strip() for s in raw_grant_sql.split(";") if s.strip()]
     create_roles = [
         "CREATE ROLE IF NOT EXISTS DATA_VIEWER",
@@ -929,17 +883,14 @@ def assemble_full_ddl(
     
     for stmt in grant_stmts:
         if re.search(r'^\s*CREATE\s+(?:OR\s+REPLACE\s+)?ROLE', stmt, re.IGNORECASE):
-            # Enforce IF NOT EXISTS so it doesn't fail if the role exists
             clean_stmt = re.sub(r'CREATE\s+(?:OR\s+REPLACE\s+)?ROLE\s+(IF\s+NOT\s+EXISTS\s+)?', 'CREATE ROLE IF NOT EXISTS ', stmt, flags=re.IGNORECASE)
             create_roles.append(clean_stmt)
         else:
             other_grants.append(stmt)
             
-    # Deduplicate create_roles just in case
     unique_create_roles = []
     seen_roles = set()
     for cr in create_roles:
-        # Extract role name roughly
         match = re.search(r'CREATE\s+ROLE\s+IF\s+NOT\s+EXISTS\s+([a-zA-Z0-9_]+)', cr, re.IGNORECASE)
         rname = match.group(1).upper() if match else cr.upper()
         if rname not in seen_roles:
@@ -949,7 +900,6 @@ def assemble_full_ddl(
     final_grant_parts = [cr + ";" for cr in unique_create_roles] + [og + ";" for og in other_grants]
     grant_sql = "\n".join(final_grant_parts) or "-- No GRANT statements generated."
 
-    # ── 6. Transforms ───────────────────────────────────────────────────────
     transform_sql = "\n\n".join(filter(None, ai_transform_parts)) or "-- No transformation samples generated."
 
     return {
@@ -965,33 +915,6 @@ def _sanitize_bind_vars(sql: str) -> str:
     return re.sub(r':\w+', '0', sql)
 
 
-def format_ddl(ddl_output: Dict[str, Any], include_transforms: bool = False) -> str:
-    """Combines various SQL artifacts into a single executable script, ensuring no stray quotes."""
-    # Retrieve blocks, default to empty strings
-    schema_block = ddl_output.get("schema_creation_sql", "") or ""
-    ddl_block    = ddl_output.get("ddl_sql", "") or ""
-    grant_block  = ddl_output.get("grant_sql", "") or ""
-    xform_block  = ddl_output.get("transform_sql", "") or ""
-    # Clean potential surrounding quotes
-    def clean_block(block: str) -> str:
-        blk = block.strip()
-        if blk.startswith('"') and blk.endswith('"'):
-            blk = blk[1:-1]
-        return blk
-    schema_block = clean_block(schema_block)
-    ddl_block = clean_block(ddl_block)
-    grant_block = clean_block(grant_block)
-    xform_block = clean_block(xform_block)
-    parts = []
-    if schema_block and schema_block not in ddl_block:
-        parts.append(f"-- SCHEMA CREATION\n{schema_block}")
-    if ddl_block:
-        parts.append(f"-- DDL\n{ddl_block}")
-    if grant_block:
-        parts.append(f"-- GRANTS\n{grant_block}")
-    if include_transforms and xform_block:
-        parts.append(f"-- TRANSFORMS\n{xform_block}")
-    return "\n\n".join(parts)
 
 
 def execute_deployment(
@@ -1008,13 +931,11 @@ def execute_deployment(
     If `schema_context` is provided, all AI-derived schemas are pre-created
     under `target_db` before executing the main DDL statements.
     """
-    # Clean possible surrounding quotes from the entire DDL string
     ddl_sql = ddl_sql.strip()
     if ddl_sql.startswith('"') and ddl_sql.endswith('"'):
         ddl_sql = ddl_sql[1:-1]
 
     import re
-    # Convert hybrid tables to standard tables to prevent invalid FK constraints
     ddl_sql = re.sub(r'\bCREATE\s+HYBRID\s+TABLE\b', 'CREATE TABLE', ddl_sql, flags=re.IGNORECASE)
 
     raw_statements = [s.strip() for s in ddl_sql.split(";") if s.strip()]
@@ -1023,7 +944,6 @@ def execute_deployment(
         no_comments = re.sub(r'--.*?(\n|$)', '', s, flags=re.MULTILINE)
         no_comments = re.sub(r'/\*.*?\*/', '', no_comments, flags=re.DOTALL)
         if no_comments.strip():
-            # Sanitize bind variables before execution
             sanitized = _sanitize_bind_vars(s)
             statements.append(sanitized)
     executed = []
@@ -1035,7 +955,6 @@ def execute_deployment(
         session.sql(f"CREATE DATABASE IF NOT EXISTS {target_db}").collect()
         session.use_database(target_db)
 
-        # ── Pre-create all AI-derived schemas (metadata-driven) ──────────────
         if schema_context and isinstance(schema_context, dict):
             for lm in schema_context.get("layers", []):
                 sname = lm.get("schema_name") or layer_to_schema_name(lm.get("layer_name", "WAREHOUSE"))
@@ -1045,11 +964,9 @@ def execute_deployment(
                 except Exception as se:
                     print(f"[WARNING] Could not create schema {sname}: {se}")
 
-        # Always create the user-specified target schema as well
         session.sql(f"CREATE SCHEMA IF NOT EXISTS {target_schema}").collect()
         session.use_schema(target_schema)
 
-        # Extract and pre-create any custom roles referenced in the DDL
         roles_to_create = set()
         for stmt in statements:
             matches = re.findall(r'\bROLE\s+([a-zA-Z0-9_]+)', stmt, re.IGNORECASE)
@@ -1064,17 +981,12 @@ def execute_deployment(
                 print(f"[WARNING] Failed to create role {role}: {role_e}")
 
         statements = [_sanitize_bind_vars(s) for s in statements]
-        # Strip surrounding quotes and escaped characters that may be introduced by JSON extraction
         cleaned_statements = []
         for stmt in statements:
             cleaned = stmt.strip()
-            # Remove surrounding single or double quotes
             cleaned = cleaned.strip('"\'')
-            # Unescape escaped double quotes
             cleaned = cleaned.replace('\\"', '"')
-            # Unescape escaped single quotes
             cleaned = cleaned.replace("\\'", "'")
-            # Remove any leading/trailing backticks or markdown fences
             cleaned = re.sub(r'^```(?:sql|json)?\s*', '', cleaned, flags=re.IGNORECASE)
             cleaned = re.sub(r'\s*```$', '', cleaned)
             cleaned = cleaned.strip()

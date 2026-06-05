@@ -3,7 +3,6 @@ import sys
 import os
 from pathlib import Path
 
-# Fix for ModuleNotFoundError
 root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -64,24 +63,24 @@ def main():
     
     section = st.session_state["current_section"]
     
-    # Update Sidebar Navigation
     show_section_nav(section)
     
-    # Header Section
     render_page_header("Requirement", f"Configuration Step {section} of 5: Establishing architectural guardrails.", "Form")
 
-    # Content Area
     if "form_buffer" not in st.session_state:
         st.session_state["form_buffer"] = {}
     
     if section == 1:
-        st.markdown("### STRATEGIC OBJECTIVES")
-        st.markdown("<p style='color: #64748B;'>Define business drivers, industry context, and success metrics.</p>", unsafe_allow_html=True)
-        st.divider()
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 30px; padding: 25px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">STRATEGIC OBJECTIVES</h3>
+                <p style="color: #64748B; font-size: 1.05rem; font-weight: 400; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Define business drivers, industry context, and success metrics.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
         c1, c2 = st.columns(2, gap="large")
         with c1:
-            industry = st.selectbox("Industry Sector", ["Retail", "Finance", "Healthcare", "SaaS", "Manufacturing", "Logistics", "Education", "Other"])
+            industry = st.selectbox("Industry Sector", ["Retail", "Finance", "Healthcare", "SaaS", "Manufacturing", "Logistics", "Education", "Technology", "Telecommunications", "Energy", "Media & Entertainment", "Real Estate", "Government", "Other"])
             
             stakeholder_options = ["Finance", "Marketing", "Executives", "Operations", "Data Team", "External"]
             existing_stakeholders = st.session_state["form_buffer"].get("consumers", [])
@@ -110,9 +109,12 @@ def main():
                 st.error("Industry and Strategic Goals are required.")
 
     elif section == 2:
-        st.markdown("### DATA SOURCES")
-        st.markdown("<p style='color: #64748B;'>Map existing infrastructure and profiling targets.</p>", unsafe_allow_html=True)
-        st.divider()
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 30px; padding: 25px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">DATA SOURCES</h3>
+                <p style="color: #64748B; font-size: 1.05rem; font-weight: 400; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Map existing infrastructure and profiling targets.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
         c1, c2 = st.columns(2, gap="large")
         with c1:
@@ -172,9 +174,12 @@ def main():
             st.rerun()
 
     elif section == 3:
-        st.markdown("### SLA & FRESHNESS")
-        st.markdown("<p style='color: #64748B;'>Determine data latency and uptime requirements.</p>", unsafe_allow_html=True)
-        st.divider()
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 30px; padding: 25px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">SLA & FRESHNESS</h3>
+                <p style="color: #64748B; font-size: 1.05rem; font-weight: 400; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Determine data latency and uptime requirements.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
         c1, c2 = st.columns(2, gap="large")
         with c1:
@@ -196,11 +201,14 @@ def main():
             st.rerun()
 
     elif section == 4:
-        st.markdown("### COMPLIANCE & SECURITY")
-        st.markdown("<p style='color: #64748B;'>Define security policies and regulatory frameworks.</p>", unsafe_allow_html=True)
-        st.divider()
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 30px; padding: 25px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">COMPLIANCE & SECURITY</h3>
+                <p style="color: #64748B; font-size: 1.05rem; font-weight: 400; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Define security policies and regulatory frameworks.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
-        compliance_options = ["GDPR", "HIPAA", "SOC2", "PCI-DSS", "None"]
+        compliance_options = ["GDPR", "HIPAA", "SOC2", "PCI-DSS", "CCPA", "ISO 27001", "FISMA", "FERPA", "SOX", "None"]
         existing_compliance = st.session_state["form_buffer"].get("compliance", ["None"])
         valid_compliance = [c for c in existing_compliance if c in compliance_options]
         
@@ -224,9 +232,12 @@ def main():
             st.rerun()
 
     elif section == 5:
-        st.markdown("### DESIGN STRATEGY")
-        st.markdown("<p style='color: #64748B;'>Select technical preferences for AI generation.</p>", unsafe_allow_html=True)
-        st.divider()
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 30px; padding: 25px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">DESIGN STRATEGY</h3>
+                <p style="color: #64748B; font-size: 1.05rem; font-weight: 400; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Select technical preferences for AI generation.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         
         c1, c2 = st.columns(2, gap="large")
         with c1:

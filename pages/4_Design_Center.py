@@ -4,7 +4,7 @@ import sys
 import os
 from pathlib import Path
 
-# Fix for ModuleNotFoundError
+
 root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
@@ -13,7 +13,6 @@ import pandas as pd
 import json
 import re
 
-from dwh_assistant.backend.executor import format_ddl
 from dwh_assistant.utils.ui import apply_premium_style, render_ai_sidebar, init_session_state, render_page_header
 from dwh_assistant.components.mermaid_renderer import render_mermaid
 st.set_page_config(page_title="Design Center | AI DWH", layout="wide")
@@ -23,31 +22,30 @@ apply_premium_style()
 def repair_session_state_keys():
     """Repairs mismatched keys in session_state for backward compatibility."""
     
-    # If we have schema_modeling but not schema_design, create alias
+
     if st.session_state.get("schema_modeling") and not st.session_state.get("schema_design"):
         st.session_state["schema_design"] = st.session_state["schema_modeling"]
         st.session_state["schema"] = st.session_state["schema_modeling"]
         print("[REPAIR] Created schema_design alias from schema_modeling")
     
-    # If we have final_blueprint but not blueprint, create alias
+
     if st.session_state.get("final_blueprint") and not st.session_state.get("blueprint"):
         st.session_state["blueprint"] = st.session_state["final_blueprint"]
         print("[REPAIR] Created blueprint alias from final_blueprint")
     
-    # If generation_results exists, re-extract outputs
+
     gen_res = st.session_state.get("generation_results")
     if isinstance(gen_res, dict):
         outputs = gen_res.get("outputs", {})
         if outputs:
-            # Re-map with correct keys
+
             if "schema_modeling" in outputs and not st.session_state.get("schema"):
                 st.session_state["schema"] = outputs["schema_modeling"]
                 st.session_state["schema_design"] = outputs["schema_modeling"]
                 print("[REPAIR] Restored schema from generation_results")
 
 def main():
-    # Sidebar for consistent model selection
-    st.sidebar.title("DWH Assistant")
+
     from dwh_assistant.backend.snowflake import ensure_session
     try:
         ensure_session()
@@ -57,13 +55,40 @@ def main():
         
     selected_model, active_session = render_ai_sidebar()
 
-    # ADD THIS:
+    with st.sidebar:
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-bottom: 10px;'><span style='color: #64748B; font-size: 0.9rem; font-weight: 600;'>System Readiness</span></div>", unsafe_allow_html=True)
+        
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("ACCESS", use_container_width=True):
+                with st.spinner("Checking..."):
+                    from dwh_assistant.backend.executor import call_cortex
+                    res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
+                    if res["success"]:
+                        st.success("Access OK")
+                    else:
+                        st.error("Access Failed")
+                        current_role = active_session.get_current_role() or "YOUR_ROLE"
+                        st.code(f"GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE {current_role};", language="sql")
+        
+        with c2:
+            if st.button("REGIONAL", use_container_width=True):
+                with st.spinner("Verifying..."):
+                    from dwh_assistant.backend.executor import call_cortex
+                    res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
+                    if res["success"]:
+                        st.success("Region OK")
+                    else:
+                        st.error("Restricted")
+
+
     repair_session_state_keys()  # Fix any key mismatches
 
     def render_regenerate_button(label: str, module_key: str):
-        c_spacer, c_btn = st.columns([5, 1])
+        _, c_btn = st.columns([5, 1])
         with c_btn:
-            if st.button(f"🔄 Regenerate", key=f"regen_{module_key}", help=f"Regenerate {label} independently via AI", use_container_width=True):
+            if st.button(f" Regenerate", key=f"regen_{module_key}", help=f"Regenerate {label} independently via AI", use_container_width=True):
                 with st.spinner(f"Regenerating {label}..."):
                     from dwh_assistant.backend.orchestrator import run_single_module
                     model = st.session_state.get("selected_model", "claude-sonnet-4-6")
@@ -133,10 +158,8 @@ def main():
         
         cleaned = clean_mermaid_code(code, tab_route=tab_route)
         
-        # Callback for editor
         def sync_mermaid():
             new_val = st.session_state[f"editor_{session_key}"].strip()
-            # Update deep session state
             keys = session_key.split(".")
             target = st.session_state
             for k in keys[:-1]:
@@ -144,11 +167,9 @@ def main():
                 target = target[k]
             target[keys[-1]] = new_val
 
-        # Use latest edited code from session state if available, otherwise fallback to cleaned AI output
         session_val = st.session_state.get(f"editor_{session_key}")
         current_code = session_val if session_val is not None else cleaned
         
-        # Prevent invalid raw headers/text from crashing Mermaid parser; render cleanly outside diagram layer
         if not current_code or current_code.strip() == "":
             st.info(f"No valid graph/diagram syntax detected for {label}. Displaying raw extracted UI text layer:")
             if code and code.strip():
@@ -162,14 +183,12 @@ def main():
             </div>
         """, unsafe_allow_html=True)
         
-        # Layout Controls
-        show_editor = st.toggle(f"Developer Mode: View/Edit {label} Syntax", value=False, key=f"toggle_{session_key}")
+        show_editor = st.toggle(" ", value=False, key=f"toggle_{session_key}")
         if show_editor:
             canvas_h = st.slider("Canvas Viewport Height", 400, 2000, height, 50, key=f"slider_{session_key}")
         else:
             canvas_h = height
 
-        # Always render the diagram for maximum visibility
         try:
             render_mermaid(current_code, height=canvas_h, node_layers=node_layers)
         except Exception as e:
@@ -196,7 +215,6 @@ def main():
 
 
 
-    # Read from session_state with comprehensive fallbacks
     arch_data = (st.session_state.get("architecture_selection") or 
                  st.session_state.get("architecture") or 
                  st.session_state.get("architecture_strategy"))
@@ -214,7 +232,6 @@ def main():
     ddl = (st.session_state.get("ddl_generation") or 
            st.session_state.get("artifacts"))
     
-    # Schema context: derived from AI architecture layers (metadata-driven)
     schema_ctx = (st.session_state.get("schema_context") or
                   (st.session_state.get("generation_results") or {}).get("outputs", {}).get("schema_context") or
                   {})
@@ -224,7 +241,6 @@ def main():
     
     history_data = st.session_state.get("history") or {}
     
-    # Validation: Check if critical components are missing
     missing_components = []
     if not arch_data: missing_components.append("Architecture")
     if not schema_data: missing_components.append("Schema")
@@ -239,7 +255,6 @@ def main():
             st.switch_page("pages/3_AI_Generation.py")
         st.stop()
 
-    # DEBUG: Log available keys for troubleshooting
     import sys
     if "--debug" in sys.argv or st.session_state.get("debug_mode"):
         st.sidebar.markdown("### Debug: Available Keys")
@@ -258,11 +273,8 @@ def main():
             ["architecture", "schema", "pipeline", "governance", "ddl", "blueprint", "history", "design"])]
         st.sidebar.code("\n".join(sorted(relevant_keys)))
 
-    # Header Section (Aligned with Home Page / AI Generation)
-    # Header Section (Aligned with Home Page / AI Generation)
     render_page_header("Design", "Review and refine your industrial data architecture.", "Center")
     
-    # 0. Live Generation Monitor (Industrial Speed Hack)
     is_running = st.session_state.get("generation_running", False)
     if is_running:
         st.markdown("""
@@ -279,28 +291,13 @@ def main():
                 </div>
             </div>
         """, unsafe_allow_html=True)
-        # Periodic refresh to pull data from background threads
         time.sleep(3)
         st.rerun()
     
-    # 1. Initialize ALL Session State variables at once for consistency
-    def _safe_load(key):
-        val = st.session_state.get(key, {})
-        if isinstance(val, str):
-            try:
-                # Try to extract JSON from markdown if present
-                json_match = re.search(r'\{.*\}', val, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group(0), strict=False)
-                return json.loads(val, strict=False)
-            except:
-                return {"_raw": val}
-        return val if isinstance(val, dict) else {}
 
-    # 1. Master Results Registry (Background Thread Safe)
+
     gen_results = st.session_state.get("generation_results", {})
 
-    # 2. Master Contract Load with Deep Extraction Support
     gen_outputs = gen_results.get("outputs", gen_results) if isinstance(gen_results, dict) else {}
     
     blueprint = arch_data if arch_data else {}
@@ -310,10 +307,8 @@ def main():
     pipeline = pipeline_data if pipeline_data else {}
     gov = governance_data if governance_data else {}
     artifacts = ddl if ddl else {}
-    final = st.session_state.get("final_blueprint") or gen_outputs.get("final_blueprint") or {}
     history_data = history_data if history_data else {}
 
-    # Define master_layers mapping tables/tasks to layers
     master_layers = {}
     if isinstance(schema, dict):
         all_tables = schema.get("tables", [])
@@ -331,14 +326,9 @@ def main():
                     if t_name and t_layer:
                         master_layers[str(t_name).lower()] = str(t_layer).lower()
     
-    # Mapping minified keys for UI
-    mermaid_erd = rel.get("mermaid") or rel.get("mermaid_diagram") or "erDiagram\n"
-    lineage_data = meta.get("lin") or meta.get("lineage") or []
-    gov_tags = meta.get("tags") or meta.get("governance_tags") or []
-    governance_mermaid = gov.get("mermaid") or gov.get("mermaid_diagram") or "graph LR"
 
 
-    # Map internal artifact keys to expected variables for existing UI components
+
     ddl = artifacts if artifacts else {}
     doc_design = (
         gen_results.get("documentation_summary") or 
@@ -351,7 +341,6 @@ def main():
     if not isinstance(doc_design, dict): doc_design = {}
 
     
-    # Status Check Banner
     status_cols = st.columns(6)
     steps = [
         ("Architecture", "architecture_strategy"),
@@ -389,13 +378,11 @@ def main():
             </div>
         """, unsafe_allow_html=True)
         
-        # Interactive Architecture Fitness Radar - Case Insensitive Mapping
         def get_metric_val(val, default=50):
             if not val: return default
             m = str(val).lower()
             return {"low": 30, "medium": 60, "high": 90}.get(m, default)
 
-        # Dynamic Fitness Profile from Master Blueprint
         metrics = blueprint.get("fitness_metrics", {})
         if not metrics and "architecture_strategy" in st.session_state:
             metrics = st.session_state.get("architecture_strategy", {}).get("fitness_metrics", {})
@@ -465,7 +452,6 @@ def main():
 
         st.divider()
         
-        # 3. Data Model Blueprint
         model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
         if model:
             st.markdown("### Data Model Blueprint")
@@ -481,7 +467,6 @@ def main():
 
 
 
-        # 5. Lifecycle Data Flow
         flow = blueprint.get("data_flow", {})
         if isinstance(flow, str):
             try: flow = json.loads(flow)
@@ -502,7 +487,6 @@ def main():
                     st.markdown("##### Serving/BI Layer")
                     st.info(flow.get('serving', 'N/A'))
 
-        # 6. Governance & Compliance
         gov_meta = blueprint.get("governance", {})
         if isinstance(gov_meta, str):
             try: gov_meta = json.loads(gov_meta)
@@ -520,7 +504,6 @@ def main():
             
         st.divider()
         
-        # Architecture quality checks — fully adaptive, not tied to any specific layer model
         arch_checks = {
             "Has layer structure": lambda x: "subgraph" in x.lower() or ("-->" in x and len(x.split("\n")) > 2),
             "Has flow paths": lambda x: "-->" in x or "---" in x,
@@ -546,8 +529,6 @@ def main():
             </div>
         """, unsafe_allow_html=True)
 
-        # Schema ERD: ONLY use schema_modeling mermaid_diagram — never doc_design which contains architecture-level diagrams
-        # doc_design.mermaid_diagram is intentionally excluded here to avoid mixing pipeline architecture with the warehouse relational model
         from dwh_assistant.utils.parser import synthesize_erd_from_tables
 
         all_tables = schema.get("tables", [])
@@ -555,17 +536,16 @@ def main():
         rel_list = rel.get("rel", [])
         if not isinstance(rel_list, list): rel_list = []
 
-        # Pull Data Model Blueprint metadata
+
         model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
         core_entities = model.get('core_entities') or model.get('fact_tables', []) or []
         primary_relationships = model.get('primary_relationships') or model.get('relationships', []) or []
 
-        # Backfill entities from Data Model Blueprint
+
         if core_entities:
             existing_names = {t.get("name").upper() for t in all_tables if isinstance(t, dict) and t.get("name")}
             for ent in core_entities:
                 if ent.upper() not in existing_names:
-                    # Guess a layer based on prefixes
                     layer = "Gold" if any(p in ent.upper() for p in ["DIM_", "FACT_", "FCT_", "GOLD"]) else "Silver"
                     all_tables.append({
                         "name": ent,
@@ -576,7 +556,7 @@ def main():
                         ]
                     })
 
-        # Backfill relationships from Data Model Blueprint
+
         if primary_relationships:
             existing_rels = set()
             for r in rel_list:
@@ -606,7 +586,6 @@ def main():
         mc3.metric("Attribute Density", total_cols, "Columns")
         st.divider()
 
-        # Data Model Blueprint (Shared from Architecture)
         model = blueprint.get("data_model_blueprint") or blueprint.get("data_model") or {}
         if model:
             st.markdown("### Data Model Blueprint")
@@ -618,8 +597,6 @@ def main():
             with mc_b2:
                 rels = model.get('primary_relationships') or model.get('relationships', [])
                 st.markdown(f"**Key Relationships**: {', '.join(rels if isinstance(rels, list) else [str(rels)])}")
-            st.divider()
-        # Tier 1: AI-generated diagram stored in schema_modeling — use if non-trivial and covers most tables
         ai_erd = schema.get("mermaid_diagram") or st.session_state.get("schema_modeling", {}).get("mermaid_diagram") or ""
         ai_erd = ai_erd.strip()
 
@@ -629,9 +606,7 @@ def main():
                 return False
             if "erdiagram" not in erd_str.lower():
                 return False
-            # Count entity blocks — each opens with a bare word followed by {
             entity_blocks = len(re.findall(r'^\s{0,8}[A-Z_][A-Z0-9_]+\s*\{', erd_str, re.MULTILINE | re.IGNORECASE))
-            # Accept the AI diagram only if it covers at least 60 % of the tables
             if n_tables > 0 and entity_blocks < max(1, int(n_tables * 0.6)):
                 return False
             return True
@@ -640,29 +615,19 @@ def main():
             erd_code = ai_erd
             print(f"[DWH LOG] Using AI-generated ERD ({len(erd_code)} chars, covers most tables)")
         elif all_tables:
-            # Tier 2: Synthesise deterministically from merged tables + relationship list
             print(f"[DWH LOG] AI ERD incomplete or absent — synthesising from {len(all_tables)} tables + {len(rel_list)} rels")
             erd_code = synthesize_erd_from_tables(all_tables, rel_list)
         else:
-            # Tier 3: Nothing available yet
             erd_code = "erDiagram\n"
 
-        erd_key = "schema_design.mermaid_diagram"
 
-        # 2. Main Visualization — schema ERD key already set above
+
         
-        schema_checks = {
-            "Has Entity Attributes": lambda x: "{" in x and "}" in x,
-            "Has PK/FK Markers": lambda x: "PK" in x or "FK" in x or "sk" in x.lower() or "id" in x.lower(),
-            "Surrogate Key Integrity": lambda x: "_sk" in x.lower(),
-            "Has Relationships": lambda x: any(c in x for c in ["||--", "}o--", "|o--", "--o|", "--||", "-->"]),
-            "Business Accuracy": lambda x: len(x.split("\n")) > 3
-        }
+
         
         schema_tabs = st.tabs(["Entity Relationship Model", "Schema Inventory"])
         
         with schema_tabs[0]:
-            # STRICT: Only use the warehouse schema ERD — rel.get("mermaid_diagram") can be a flowchart type and must NOT be used here
             mermaid_erd = erd_code or "erDiagram\n"
             render_interactive_mermaid(
                 mermaid_erd,
@@ -672,11 +637,9 @@ def main():
                 node_layers=master_layers
             )
             
-            # 3. Layer Inventory
 
         with schema_tabs[1]:
             st.markdown("### Tabular Schema Inventory")
-            # Strictly rely on runtime inference payload from the selected Cortex AI model
             unique_tables = all_tables
 
             if not unique_tables:
@@ -685,7 +648,6 @@ def main():
                 from collections import defaultdict
                 from dwh_assistant.utils.parser import layer_sort_key
                 
-                # Group unique tables by layer
                 tables_by_layer = defaultdict(list)
                 for t in unique_tables:
                     if not isinstance(t, dict):
@@ -697,8 +659,7 @@ def main():
                 sorted_layer_names = sorted(tables_by_layer.keys(), key=layer_sort_key)
                 
                 for layer_name in sorted_layer_names:
-                    st.divider()
-                    st.markdown(f"#### 📁 {layer_name.upper()} LAYER ({len(tables_by_layer[layer_name])} Entities)")
+                    st.markdown(f"#### {layer_name.upper()} LAYER ({len(tables_by_layer[layer_name])} Entities)")
                     with st.container():
                         layer_tables = tables_by_layer[layer_name]
                         t_names = sorted([t.get("name") for t in layer_tables])
@@ -723,8 +684,8 @@ def main():
                                     df_data.append({
                                         "Column": c.get("name"),
                                         "Type": c.get("type"),
-                                        "PK": "🔑 PK" if is_pk else "",
-                                        "FK": "🔗 FK" if is_fk else "",
+                                        "PK": "PK" if is_pk else "",
+                                        "FK": "FK" if is_fk else "",
                                         "References": c.get("references") or c.get("ref") or "",
                                         "Description": c.get("description", "")
                                     })
@@ -747,7 +708,6 @@ def main():
     with tabs[2]:
         render_regenerate_button("Pipeline", "pipeline_design")
         if not render_tab_placeholder("Transformation Pipelines", pipeline):
-            # 1. Metric Overview
             tasks = pipeline.get("tasks", [])
             pc1, pc2, pc3 = st.columns(3)
             pc1.metric("Total Orchestration Tasks", len(tasks), "Workflows")
@@ -757,8 +717,6 @@ def main():
             pc3.metric("Transformation Logic", len([t for t in tasks if t.get("type") == "transformation"]), "Steps")
             st.divider()
     
-            # 2. Main Visualization
-            # Pipeline quality checks — architecture-agnostic: supports Medallion, Data Vault, Lakehouse
             pipe_checks = {
                 "Has Flowchart": lambda x: "graph" in x.lower() or "flowchart" in x.lower(),
                 "Has Task Dependencies": lambda x: "-->" in x,
@@ -779,7 +737,6 @@ def main():
                 node_layers=master_layers
             )
     
-            # 3. Task Inventory
             st.markdown("#### Execution Strategy")
             if tasks:
                 task_df = pd.DataFrame(tasks)
@@ -791,14 +748,12 @@ def main():
     with tabs[3]:
         render_regenerate_button("Governance", "governance_security")
         if not render_tab_placeholder("Governance & Security", gov):
-            # 1. Metric Overview
             g1, g2, g3 = st.columns(3)
             g1.metric("Roles Defined", len(gov.get("roles", [])), "RBAC")
             g2.metric("Masking Policies", len(gov.get("masking_policies", [])), "GDPR/CCPA")
             g3.metric("Compliant Steps", len(gov.get("compliance_checklist", [])), "Audit")
             st.divider()
     
-            # 2. Main Visualization
             lineage_code_raw = (
                 doc_design.get("governance_security", {}).get("mermaid_diagram") or 
                 gov.get("mermaid_diagram") or 
@@ -806,7 +761,6 @@ def main():
             )
             lineage_code = lineage_code_raw or "graph LR\n  NODATA"
 
-            # Governance checks — architecture-agnostic: detects any RBAC/policy/source/consumer pattern
             lineage_checks = {
                 "Has Source/Role nodes": lambda x: any(kw in x.lower() for kw in ["source", "role", "graph", "admin", "user", "ingestion"]),
                 "Has Consumer/Policy nodes": lambda x: any(kw in x.lower() for kw in ["gold", "bi", "policy", "storage", "mart", "info_mart", "dashboard", "report", "catalog"]),
@@ -822,7 +776,6 @@ def main():
                 node_layers=master_layers
             )
     
-            # 3. RBAC & Policies
             st.divider()
             c1, c2 = st.columns([2, 1])
             with c1:
@@ -865,7 +818,6 @@ def main():
             
             st.divider()
             
-            # Helper: force any value to a string for st.code / st.download_button
             def _to_str(val, fallback=""):
                 if val is None: return fallback
                 if isinstance(val, str): return val
@@ -876,7 +828,6 @@ def main():
     
             schema_creation_str = _to_str(ddl.get("schema_creation_sql"), "")
             if not schema_creation_str:
-                # Pre-calculate fallback from schema_ctx so it is editable
                 ctx_layers = schema_ctx.get("layers", []) if isinstance(schema_ctx, dict) else []
                 if ctx_layers:
                     from dwh_assistant.backend.executor import layer_to_schema_name as _l2s
@@ -890,7 +841,6 @@ def main():
 
             ddl_sql_str     = _to_str(ddl.get("ddl_sql"), "-- No DDL generated")
             
-            # Enhanced Documentation Rendering for Structured Objects
             doc_obj = doc_design
             if isinstance(doc_design, dict) and "documentation" in doc_design:
                 nested = doc_design["documentation"]
@@ -913,7 +863,6 @@ def main():
             grant_sql_str = _to_str(ddl.get("grant_sql"), "-- No Grants generated")
             transform_sql_str = _to_str(ddl.get("transform_sql"), "-- No Transformations generated")
 
-            # Synchronize editable state with original AI payload
             original_payload = {
                 "schema_creation": schema_creation_str,
                 "ddl_sql": ddl_sql_str,
@@ -927,7 +876,6 @@ def main():
                 st.session_state["edited_transform_sql"] = transform_sql_str
                 st.session_state["artifacts_original_payload"] = original_payload
 
-            # Ensure keys exist in session state
             if "edited_schema_creation" not in st.session_state: st.session_state["edited_schema_creation"] = schema_creation_str
             if "edited_ddl_sql" not in st.session_state: st.session_state["edited_ddl_sql"] = ddl_sql_str
             if "edited_grant_sql" not in st.session_state: st.session_state["edited_grant_sql"] = grant_sql_str
@@ -951,15 +899,13 @@ def main():
 
             c1, c2 = st.columns([2, 1])
             with c1:
-                # Add the Developer Mode Edit toggle
-                edit_mode = st.toggle("✏️ Enable Developer Edit Mode (Modify AI Artifacts)", value=False, key="artifacts_edit_mode")
+                edit_mode = st.toggle(" ", value=False, key="artifacts_edit_mode")
                 
-                # Sub-tabs for better organization
                 sub_tabs = st.tabs(["Full Script", "Schemas", "Tables", "Grants", "Transformations"])
                 
                 with sub_tabs[0]:
                     if edit_mode:
-                        st.info("💡 Edit the individual tabs to modify this compiled deployment script.")
+                        st.info("Edit the individual tabs to modify this compiled deployment script.")
                     st.code(full_sql_script, language="sql", line_numbers=True)
 
                 with sub_tabs[1]:
@@ -971,7 +917,6 @@ def main():
                         </div>
                     """, unsafe_allow_html=True)
 
-                    # Render the schema layer → schema name → table count table
                     ctx_layers = schema_ctx.get("layers", []) if isinstance(schema_ctx, dict) else []
                     if ctx_layers:
                         schema_map_rows = []
@@ -983,11 +928,9 @@ def main():
                                 "Table Names":        ", ".join(t.get("name", "") for t in lm.get("tables", []))
                             })
                         st.dataframe(pd.DataFrame(schema_map_rows), hide_index=True, use_container_width=True)
-                        st.divider()
                     else:
                         st.info("Schema context not yet available. Run AI generation to populate.")
 
-                    # Show/Edit the deterministic CREATE SCHEMA block
                     if edit_mode:
                         st.markdown("#### Edit Schema Creation Statements")
                         st.session_state["edited_schema_creation"] = st.text_area(
@@ -1106,7 +1049,7 @@ def main():
                             status.update(label="Deployment Successful!", state="complete", expanded=False)
                             st.success(f"Successfully executed {res['statements_run']} statements.")
                             if res.get("skipped_count", 0) > 0:
-                                st.warning(f"⚠️ Skipped {res['skipped_count']} non-blocking statements (e.g. references to objects or roles that do not exist).")
+                                st.warning(f"Skipped {res['skipped_count']} non-blocking statements (e.g. references to objects or roles that do not exist).")
                             st.dataframe(pd.DataFrame(res["results"]) if "results" in res else pd.DataFrame([{"status": "deployed"}]), use_container_width=True, hide_index=True)
                         else:
                             status.update(label="Deployment Failed", state="error", expanded=True)
@@ -1117,14 +1060,12 @@ def main():
         if not render_tab_placeholder("Design History", history_data):
             st.markdown("### Industrial History & Provenance")
             
-            # 1. Metric Overview
             hcol1, hcol2, hcol3 = st.columns(3)
             hcol1.metric("Current Version", history_data.get("version", "v1.0"), "Production")
             hcol2.metric("Last Generation", (history_data.get("generated_at", "N/A")[:10]) if history_data.get("generated_at") else time.strftime("%Y-%m-%d"), "UTC")
             hcol3.metric("Industrial Assumptions", len(history_data.get("assumptions", [])), "Verified")
             st.divider()
     
-            # 2. History Details
             h_c1, h_c2 = st.columns(2)
             with h_c1:
                 st.markdown("#### Strategic Assumptions")
@@ -1140,7 +1081,6 @@ def main():
         from dwh_assistant.backend.snowflake import get_all_projects, load_project_by_id
         projects = get_all_projects(st.session_state["snowflake_session"])
         for p_row in projects:
-            # get_all_projects now returns plain dicts after Fix 6
             raw = p_row if isinstance(p_row, dict) else p_row.as_dict()
             p = {k.upper(): v for k, v in raw.items()}
             pid = p.get('ID')

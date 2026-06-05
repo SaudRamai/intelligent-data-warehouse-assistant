@@ -3,14 +3,12 @@ import sys
 import os
 from pathlib import Path
 
-# Fix for ModuleNotFoundError
 root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
 import logging
 import warnings
-# Aggressively mute the "missing ScriptRunContext" warning
 logging.getLogger("streamlit.runtime.scriptrunner").setLevel(logging.ERROR)
 warnings.filterwarnings("ignore", message=".*missing ScriptRunContext.*")
 
@@ -22,28 +20,23 @@ init_session_state()
 apply_premium_style()
 
 def clear_all_generation_caches(steps):
-    # 1. Clear persistent disk cache directory
     import shutil
     from dwh_assistant.backend.orchestrator import CORTEX_CACHE_DIR
     if CORTEX_CACHE_DIR.exists():
         shutil.rmtree(CORTEX_CACHE_DIR, ignore_errors=True)
         CORTEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 2. Clear Streamlit's data cache
     st.cache_data.clear()
 
-    # 3. Clear memory caches
     if "cortex_memory_cache" in st.session_state:
         st.session_state["cortex_memory_cache"] = {}
     if "profile_cache" in st.session_state:
         st.session_state["profile_cache"] = {}
 
-    # 4. Clear steps outputs and raw outputs
     for _k, _ in steps:
         st.session_state[_k] = None
         st.session_state[f"{_k}_raw"] = None
 
-    # 5. Clear compatibility and mapped session state keys
     other_keys = [
         "architecture_selection", "schema_design", "schema_modeling",
         "pipeline_design", "governance_security", "ddl_generation",
@@ -54,7 +47,6 @@ def clear_all_generation_caches(steps):
     for key in other_keys:
         st.session_state[key] = None
 
-    # 6. Clear manual overrides from the Design Center
     editor_keys = [k for k in list(st.session_state.keys()) if k.startswith("editor_") or k.startswith("toggle_") or k.startswith("slider_")]
     for key in editor_keys:
         del st.session_state[key]
@@ -68,17 +60,15 @@ def main():
             st.switch_page("pages/2_Data_Profile.py")
         return
 
-    # Ensure valid session to prevent token expiration
     selected_model, active_session = render_ai_sidebar()
 
-    # Continue adding custom sidebar elements after the unified selector
     with st.sidebar:
-        # System Readiness Center
-        st.markdown("**System Readiness Center**")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-bottom: 10px;'><span style='color: #64748B; font-size: 0.9rem; font-weight: 600;'>System Readiness</span></div>", unsafe_allow_html=True)
         
         c1, c2 = st.columns(2)
         with c1:
-            if st.button("PERMISSION CHECK", use_container_width=True):
+            if st.button("ACCESS", use_container_width=True):
                 with st.spinner("Checking..."):
                     res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
                     if res["success"]:
@@ -89,21 +79,16 @@ def main():
                         st.code(f"GRANT DATABASE ROLE SNOWFLAKE.CORTEX_USER TO ROLE {current_role};", language="sql")
         
         with c2:
-            if st.button("REGIONAL CHECK", use_container_width=True):
+            if st.button("REGIONAL", use_container_width=True):
                 with st.spinner("Verifying..."):
                     res = call_cortex(active_session, "hi", "check", model=selected_model, max_retries=1)
                     if res["success"]:
-                        st.success(f"{selected_model} OK")
+                        st.success("Region OK")
                     else:
-                        st.error(f"{selected_model} Restricted")
-                    
-        st.info(f"Active Engine: **{selected_model}**")
-        
+                        st.error("Restricted")
 
-    # Header Section (Aligned with Home Page)
     render_page_header("AI", "Cortex LLM is orchestrating your multi-tier data warehouse architecture. Sit back while the engine designs your schema, pipelines, and governance policies.", "Architect")
 
-    # Step Definitions (Matched with orchestrator.py phases)
     steps = [
         ("architecture_strategy", "Architecture Strategy"),
         ("schema_modeling",       "Physical Schema Design"),
@@ -115,14 +100,17 @@ def main():
         ("final_blueprint",       "Final Architectural Blueprint")
     ]
     
-    # Progress & Console Section
     col_status, col_log = st.columns([1, 1], gap="large")
     
     with col_status:
-        st.markdown("### **Progress Tracker**")
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 20px; padding: 20px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">Progress Tracker</h3>
+                <p style="color: #64748B; font-size: 0.95rem; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Real-time orchestration pipeline status.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         status_placeholders = {}
         for key, label in steps:
-            # Check current state to show previously completed steps
             cached = st.session_state.get(key)
             is_done = step_is_complete(key, cached)
             
@@ -137,15 +125,19 @@ def main():
         progress_text = st.empty()
     
     with col_log:
-        st.markdown("### **System Logs**")
+        st.markdown('''
+            <div class="glass-card-white" style="margin-bottom: 20px; padding: 20px;">
+                <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">System Logs</h3>
+                <p style="color: #64748B; font-size: 0.95rem; margin-bottom: 0; font-family: 'Outfit', sans-serif;">Live agentic reasoning output.</p>
+            </div>
+        ''', unsafe_allow_html=True)
         log_box = st.empty()
         log_content = ["[SYSTEM] Ready to initialize...", "[READY] Waiting for user trigger..."]
         log_box.code("\n".join(log_content), language="bash")
     
-    # Action Logic
+    st.markdown("<br><br>", unsafe_allow_html=True)
     cta_placeholder = st.empty()
     
-    # Check if we already have results (Success or Failure)
     gen_res = st.session_state.get("generation_results")
     is_running = st.session_state.get("generation_running")
     
@@ -165,7 +157,6 @@ def main():
         st.error(f"Generation Failed: {gen_res.get('error')}")
         c1, c2 = st.columns(2)
         if c1.button("RETRY FROM FAILED STEP", type="primary", use_container_width=True):
-            # DO NOT clear state. orchestrator.run_all will skip 'Done' steps.
             st.session_state["generation_running"] = True
             st.rerun()
         if c2.button("START OVER (RESET)", use_container_width=True):
@@ -187,13 +178,11 @@ def main():
                 step_labels = dict(steps)
                 label = step_labels.get(step_key, step_key)
                 
-                # Extract sub-step info (e.g. layer or batch)
                 sub_info = ""
                 if isinstance(data, dict):
                     if "layer" in data: sub_info = f" [{data['layer']}]"
                     elif "batch" in data: sub_info = f" [Batch {data['batch']}]"
 
-                # 1. Update Persistent Progress Tracker (Sidebar-like list)
                 if step_key in status_placeholders:
                     if state == "running":
                         status_placeholders[step_key].markdown(f"**{label}{sub_info} (Designing...)**", unsafe_allow_html=True)
@@ -202,11 +191,9 @@ def main():
                     elif state == "error":
                         status_placeholders[step_key].markdown(f"(Fail) <span style='color: #EF4444;'>{label} (Failed)</span>", unsafe_allow_html=True)
 
-                # 2. Update Main Status & Log
                 if state == "running":
                     status.update(label=f"Architecting: {label}{sub_info}...", state="running")
                     with log_container:
-                        # Defensive access for threaded execution
                         try:
                             current_model = st.session_state.get('selected_model', 'Default')
                         except:
@@ -214,7 +201,6 @@ def main():
                         st.info(f"Step: **{label}{sub_info}** | Current Engine: `{current_model}`")
                         st.write(f"Cortex is calculating optimal {label.lower()} patterns...")
                 elif state == "done":
-                    # Update Overall Progress Bar
                     try:
                         current_idx = [s[0] for s in steps].index(step_key) + 1
                         overall_progress.progress(current_idx / len(steps))
@@ -222,22 +208,17 @@ def main():
                     except: pass
                     st.write(f"**{label} Design Generated.**")
                 elif state == "error":
-                    # Handle both string errors and response dictionaries
                     err_msg = (data.get("error") if isinstance(data, dict) else data) or "Unknown error"
                     st.error(f"Error in {label}: {err_msg}")
                     
-                    # If we have raw output, show it in a debug box
                     if isinstance(data, dict) and data.get("raw"):
                         with st.expander("VIEW RAW AI OUTPUT (DEBUG)", expanded=True):
                             st.code(data["raw"], language="json")
                             st.info("Check Line 3 for missing commas or structural issues.")
 
             try:
-                # Ensure session is alive
                 valid_session = ensure_session()
                 
-                # OPTIMIZATION: Use existing results if this is a retry/resume
-                # Only carry forward steps that are valid dicts (not None or str)
                 _step_keys = [
                     "architecture_strategy", "schema_modeling",
                     "metadata_analysis", "relationship_design",
@@ -261,17 +242,14 @@ def main():
                 
                 st.session_state["generation_running"] = False
                 
-                # Always extract outputs if they exist, even on partial failure
                 outputs = results.get("outputs", {})
                 if not outputs and results.get("success"):
                     outputs = results # Fallback for flat returns
                 
                 if outputs:
-                    # Primary keys (from orchestrator) - CORRECTED TO MATCH ACTUAL OUTPUT KEYS
                     st.session_state["architecture_selection"] = outputs.get("architecture_selection") or outputs.get("architecture_strategy")
                     st.session_state["architecture_strategy"] = outputs.get("architecture_strategy") or outputs.get("architecture_selection")
                     
-                    # FIX: Use "schema_modeling" (actual key) instead of non-existent "schema_design"
                     st.session_state["schema_design"] = outputs.get("schema_modeling")
                     st.session_state["schema_modeling"] = outputs.get("schema_modeling")
                     
@@ -279,25 +257,20 @@ def main():
                     st.session_state["governance_security"] = outputs.get("governance_security")
                     st.session_state["ddl_generation"] = outputs.get("ddl_generation")
                     
-                    # FIX: Extract metadata_analysis and relationship_design
                     st.session_state["metadata_analysis"] = outputs.get("metadata_analysis")
                     st.session_state["relationship_design"] = outputs.get("relationship_design")
                     
-                    # FIX: Map final_blueprint to both keys
                     st.session_state["final_blueprint"] = outputs.get("final_blueprint")
                     st.session_state["blueprint"] = outputs.get("final_blueprint")
                     
-                    # FIX: Extract documentation from final_blueprint if it exists
                     final_bp = outputs.get("final_blueprint", {})
                     if isinstance(final_bp, dict):
                         st.session_state["documentation_design"] = final_bp.get("documentation") or final_bp
                     else:
                         st.session_state["documentation_design"] = {"summary": str(final_bp)}
                     
-                    # Master Contract Keys — Design Center reads from these short keys
                     st.session_state["architecture"] = outputs.get("architecture_strategy") or outputs.get("architecture_selection")
                     
-                    # FIX: Use schema_modeling for schema key
                     st.session_state["schema"] = outputs.get("schema_modeling")
                     
                     st.session_state["pipeline"] = outputs.get("pipeline_design")
@@ -317,7 +290,6 @@ def main():
                     print(f"  history: {bool(st.session_state.get('history'))}")
                 
                 if results["success"]:
-                    # PERSIST TO ARCHITECTURE_STORE
                     save_project_to_store(
                         valid_session,
                         st.session_state["project_id"],
@@ -331,7 +303,6 @@ def main():
                     time.sleep(1)
                     st.rerun()
                 else:
-                    # Partial Save on failure to allow resume
                     partial = results.get("partial_outputs", {})
                     for k, v in partial.items():
                         if v: st.session_state[k] = v

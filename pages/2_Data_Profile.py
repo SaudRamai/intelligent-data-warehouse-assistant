@@ -9,7 +9,6 @@ st.set_page_config(page_title="Data Profile | AI DWH", layout="wide")
 apply_premium_style()
 
 def main():
-    # Sidebar for consistent model selection
     selected_model, active_session = render_ai_sidebar(show_model_selector=False)
     st.divider()
 
@@ -19,7 +18,6 @@ def main():
             st.switch_page("pages/1_Intake_Form.py")
         return
 
-    # Standalone Header Glass-Card
     render_page_header("Data", "Scanning source metadata and sampling content to inform architectural models.", "Intelligence")
     
     reqs = st.session_state["requirements"]
@@ -29,7 +27,6 @@ def main():
     
     profile_data = None
     
-    # Using a container for the "work" area
     work_area = st.container()
     
     with st.spinner("Analyzing source patterns and classifying data types..."):
@@ -67,20 +64,16 @@ def main():
     if profile_data:
         st.session_state["data_profile"] = profile_data
         
-        # 1. Visualization Dashboard
         st.markdown("### Architecture Insights")
         
-        # Dashboard Card Wrapper
         st.markdown('<div style="background: white; padding: 30px; border-radius: 20px; border: 1px solid rgba(0,0,0,0.05); margin-bottom: 30px;">', unsafe_allow_html=True)
         vcol1, vcol2 = st.columns([2, 1])
         
-        # Prep data for viz
         table_stats = []
         type_counts = {}
         for t in profile_data.get('tables', []):
             table_stats.append({"Table": t.get('name', 'Unknown'), "Rows": t.get('row_count', 0)})
             for c in t.get('columns', []):
-                # Handle both dict-based columns and string-based columns for safety
                 if isinstance(c, dict):
                     t_key = c.get('type', 'TEXT').split("(")[0]
                 else:
@@ -105,17 +98,14 @@ def main():
             }, use_container_width=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
-        # 2. Entity Discovery Section
         st.markdown("### Enterprise Entity Explorer")
         
-        # Control bar
         c1, c2 = st.columns([2, 1])
         table_names = [t.get('name', 'Unknown') for t in profile_data.get('tables', [])]
         selected_name = c1.selectbox("Focus Entity", table_names, index=0)
         
         table = next((t for t in profile_data.get('tables', []) if t.get('name') == selected_name), {})
         
-        # Detail Canvas
         st.markdown(f"""
             <div style="background: white; border: 1px solid #E2E8F0; border-radius: 16px; padding: 35px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 25px; padding-bottom: 15px; border-bottom: 1px solid #F1F5F9;">
@@ -135,7 +125,6 @@ def main():
         with sc1:
             st.markdown("<p style='font-size: 0.8rem; color: #64748B; font-weight: 700;'>LOGICAL ATTRIBUTES</p>", unsafe_allow_html=True)
             raw_cols = table.get("columns", [])
-            # Normalize to dicts if they are strings
             normalized_cols = []
             for c in raw_cols:
                 if isinstance(c, dict):
@@ -145,7 +134,6 @@ def main():
             
             if normalized_cols:
                 cols_df = pd.DataFrame(normalized_cols)
-                # Ensure all required columns exist in the DF for filtering
                 for required_col in ["name", "type", "nullable"]:
                     if required_col not in cols_df.columns:
                         cols_df[required_col] = "N/A"
@@ -163,7 +151,6 @@ def main():
             else:
                 st.info("No content sample available for this entity.")
         
-        # Policy & Key Badges
         keys = [c.get('name') for c in table.get('columns', []) if isinstance(c, dict) and c.get('is_key')]
         pii = [c.get('name') for c in table.get('columns', []) if isinstance(c, dict) and c.get('is_pii')]
         
@@ -187,7 +174,6 @@ def main():
         
         st.markdown("</div>", unsafe_allow_html=True)
                 
-        # 3. Final Navigation
         st.markdown("<br><br>", unsafe_allow_html=True)
         fc1, fc2, fc3 = st.columns([1, 2, 1])
         if fc2.button("INITIALIZE ARCHITECTURAL BLUEPRINT", type="primary", use_container_width=True):

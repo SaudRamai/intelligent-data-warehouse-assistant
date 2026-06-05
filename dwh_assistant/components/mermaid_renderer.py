@@ -40,7 +40,11 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                     const {{ svg }} = await mermaid.render('mermaid-svg', graphDefinition);
                     container.innerHTML = svg;
                     
-                    // Initialize svg-pan-zoom
+                    // Update download link
+                    const downloadBtn = document.getElementById('downloadBtn');
+                    const encodedData = encodeURIComponent(svg);
+                    downloadBtn.href = "data:image/svg+xml;charset=utf-8," + encodedData;
+                    
                     const svgElement = container.querySelector('svg');
                     if(svgElement) {{
                         svgElement.style.width = '100%';
@@ -92,6 +96,7 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
                 height: 100vh;
                 overflow: hidden;
+                position: relative;
             }}
             #diagramContainer {{
                 width: 100%;
@@ -100,9 +105,38 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 justify-content: center;
                 align-items: center;
             }}
+            .download-btn {{
+                position: absolute;
+                top: 15px;
+                right: 15px;
+                z-index: 1000;
+                padding: 8px 16px;
+                background-color: #0EA5E9;
+                color: white;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-family: inherit;
+                font-weight: 600;
+                font-size: 13px;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+                transition: background-color 0.2s, transform 0.1s;
+                text-decoration: none;
+                display: inline-block;
+            }}
+            .download-btn:hover {{
+                background-color: #0284C7;
+                transform: translateY(-1px);
+                text-decoration: none;
+                color: white;
+            }}
+            .download-btn:active {{
+                transform: translateY(1px);
+            }}
         </style>
     </head>
     <body>
+        <a id="downloadBtn" class="download-btn" download="diagram.svg" href="#">Download SVG</a>
         <div id="diagramCode" style="display: none;">{code}</div>
         <div id="diagramContainer"></div>
     </body>

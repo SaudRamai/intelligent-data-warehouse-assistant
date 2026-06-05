@@ -93,6 +93,7 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
                 height: 100vh;
                 overflow: hidden;
             }}
+            #diagramContainer {{
                 width: 100%;
                 height: 100%;
                 display: flex;

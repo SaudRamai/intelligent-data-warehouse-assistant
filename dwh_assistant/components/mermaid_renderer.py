@@ -2,8 +2,24 @@ import streamlit as st
 import streamlit.components.v1 as components
 from dwh_assistant.utils.parser import clean_mermaid_code, detect_truncation
 
+import os
+
+@st.cache_data
+def get_js_libraries():
+    base_dir = os.path.dirname(__file__)
+    mermaid_path = os.path.join(base_dir, 'static', 'mermaid.min.js')
+    pan_zoom_path = os.path.join(base_dir, 'static', 'svg-pan-zoom.min.js')
+    
+    with open(mermaid_path, 'r', encoding='utf-8') as f:
+        mermaid_js = f.read()
+        
+    with open(pan_zoom_path, 'r', encoding='utf-8') as f:
+        pan_zoom_js = f.read()
+        
+    return mermaid_js, pan_zoom_js
+
 def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
-    """Renders Mermaid.js code natively using an HTML component for maximum reliability."""
+    """Renders Mermaid.js code natively using an HTML component with offline JS for maximum reliability."""
     print(f"\n[DWH LOG] render_mermaid invoked. Raw code length: {len(code) if code else 0}")
     
     if not code or code.strip() == "":
@@ -20,46 +36,53 @@ def render_mermaid(code: str, height: int = 500, node_layers: dict = None):
 
     code = clean_mermaid_code(code)
     
+    try:
+        mermaid_js, pan_zoom_js = get_js_libraries()
+    except Exception as e:
+        st.error(f"Failed to load local JS libraries: {e}")
+        return
+    
     html_code = f"""
     <!DOCTYPE html>
     <html>
     <head>
-        <script src="https://cdn.jsdelivr.net/npm/svg-pan-zoom@3.6.1/dist/svg-pan-zoom.min.js"></script>
-        <script type="module">
-            import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        <script>{pan_zoom_js}</script>
+        <script>{mermaid_js}</script>
+        <script>
             mermaid.initialize({{
                 startOnLoad: false,
                 theme: 'default',
                 securityLevel: 'loose'
             }});
             
-            async function renderDiagram() {{
+            function renderDiagram() {{
                 const graphDefinition = document.getElementById('diagramCode').textContent;
                 const container = document.getElementById('diagramContainer');
                 try {{
-                    const {{ svg }} = await mermaid.render('mermaid-svg', graphDefinition);
-                    container.innerHTML = svg;
-                    
-                    // Update download link
-                    const downloadBtn = document.getElementById('downloadBtn');
-                    const encodedData = encodeURIComponent(svg);
-                    downloadBtn.href = "data:image/svg+xml;charset=utf-8," + encodedData;
-                    
-                    const svgElement = container.querySelector('svg');
-                    if(svgElement) {{
-                        svgElement.style.width = '100%';
-                        svgElement.style.height = '100%';
-                        svgElement.style.maxWidth = 'none';
-                        svgElement.style.maxHeight = 'none';
-                        svgPanZoom(svgElement, {{
-                            zoomEnabled: true,
-                            controlIconsEnabled: true,
-                            fit: true,
-                            center: true,
-                            minZoom: 0.1,
-                            maxZoom: 10
-                        }});
-                    }}
+                    mermaid.mermaidAPI.render('mermaid-svg', graphDefinition, function(svgCode) {{
+                        container.innerHTML = svgCode;
+                        
+                        // Update download link
+                        const downloadBtn = document.getElementById('downloadBtn');
+                        const encodedData = encodeURIComponent(svgCode);
+                        downloadBtn.href = "data:image/svg+xml;charset=utf-8," + encodedData;
+                        
+                        const svgElement = container.querySelector('svg');
+                        if(svgElement) {{
+                            svgElement.style.width = '100%';
+                            svgElement.style.height = '100%';
+                            svgElement.style.maxWidth = 'none';
+                            svgElement.style.maxHeight = 'none';
+                            svgPanZoom(svgElement, {{
+                                zoomEnabled: true,
+                                controlIconsEnabled: true,
+                                fit: true,
+                                center: true,
+                                minZoom: 0.1,
+                                maxZoom: 10
+                            }});
+                        }}
+                    }});
                 }} catch (e) {{
                     container.innerHTML = `<div style="color: red; padding: 20px;">Mermaid syntax error:<br><pre>${{e.message}}</pre></div>`;
                 }}

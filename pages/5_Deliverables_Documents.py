@@ -318,7 +318,7 @@ ARCHITECTURE CONTEXT
 def main():
     selected_model, active_session = render_ai_sidebar()
     
-    render_page_header("Deliverables Documents", "Generate Client Proposals and Technical Solutions directly from the orchestrated architecture outputs.", "Documents")
+    render_page_header("Deliverables", "Generate Client Proposals and Technical Solutions directly from the orchestrated architecture outputs.", "Documents")
 
     req_keys = [
         "architecture_strategy", "schema_modeling", "relationship_design",
@@ -488,7 +488,7 @@ def main():
         
         c1, c2, c3, c4, c5, c6 = st.columns(6)
         
-        if c1.button("View Document" if not st.session_state.get("show_prop") else "Hide Document", key="view_prop", use_container_width=True):
+        if c1.button("View Document" if not st.session_state.get("show_prop") else "Hide Document", key="btn_view_prop", use_container_width=True):
             st.session_state["show_prop"] = not st.session_state.get("show_prop", False)
             st.rerun()
             
@@ -496,7 +496,7 @@ def main():
         c3.download_button("DOCX", data=docx_bytes, file_name="Client_Proposal.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
         c4.download_button("Markdown", data=md_string, file_name="Client_Proposal.md", mime="text/markdown", use_container_width=True)
         
-        if c5.button("Copy Content" if not st.session_state.get("copy_prop") else "Hide Content", key="copy_prop", use_container_width=True):
+        if c5.button("Copy Content" if not st.session_state.get("copy_prop") else "Hide Content", key="btn_copy_prop", use_container_width=True):
             st.session_state["copy_prop"] = not st.session_state.get("copy_prop", False)
             st.rerun()
             
@@ -547,7 +547,7 @@ def main():
         
         tc1, tc2, tc3, tc4, tc5, tc6 = st.columns(6)
         
-        if tc1.button("View Document" if not st.session_state.get("show_tech") else "Hide Document", key="view_tech", use_container_width=True):
+        if tc1.button("View Document" if not st.session_state.get("show_tech") else "Hide Document", key="btn_view_tech", use_container_width=True):
             st.session_state["show_tech"] = not st.session_state.get("show_tech", False)
             st.rerun()
             
@@ -555,7 +555,7 @@ def main():
         tc3.download_button("DOCX", data=docx_bytes_t, file_name="Technical_Solution.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
         tc4.download_button("Markdown", data=md_string, file_name="Technical_Solution.md", mime="text/markdown", use_container_width=True)
         
-        if tc5.button("Copy Content" if not st.session_state.get("copy_tech") else "Hide Content", key="copy_tech", use_container_width=True):
+        if tc5.button("Copy Content" if not st.session_state.get("copy_tech") else "Hide Content", key="btn_copy_tech", use_container_width=True):
             st.session_state["copy_tech"] = not st.session_state.get("copy_tech", False)
             st.rerun()
             

@@ -582,12 +582,6 @@ def _is_truncated(raw: str) -> bool:
     if stripped.endswith("```"):
         stripped = re.sub(r'\s*```$', '', stripped).strip()
         
-    if stripped.endswith("}") or stripped.endswith("]"):
-        return False
-        
-    if stripped[-1] not in ('}', ']', '"', ' '):
-        return True
-        
     open_braces = stripped.count('{')
     close_braces = stripped.count('}')
     if open_braces > close_braces:
@@ -596,6 +590,12 @@ def _is_truncated(raw: str) -> bool:
     open_brackets = stripped.count('[')
     close_brackets = stripped.count(']')
     if open_brackets > close_brackets:
+        return True
+
+    if stripped.endswith("}") or stripped.endswith("]"):
+        return False
+        
+    if stripped[-1] not in ('}', ']', '"', ' '):
         return True
 
     return False

@@ -990,7 +990,8 @@ def main():
                 st.divider()
                 d1, d2 = st.columns(2)
                 d1.download_button("Download Full Script (.sql)", full_sql_script, file_name="full_deployment_script.sql", use_container_width=True)
-                d2.download_button("Technical Docs (.md)", doc_str, file_name="documentation.md", use_container_width=True)
+                if d2.button("Go to Deliverables Documents", use_container_width=True):
+                    st.switch_page("pages/5_Deliverables_Documents.py")
             
             with c2:
                 st.markdown("#### Deployment Console")

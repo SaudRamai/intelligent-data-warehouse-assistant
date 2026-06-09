@@ -141,7 +141,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 "compliance_checklist", "lin", "tags", "architecture_type", "modeling_paradigm", 
                 "layers", "architecture_justification", "data_model_blueprint", "data_flow", 
                 "ddl_sql", "grant_sql", "transform_sql", "assumptions", "version", "generated_at", 
-                "summary", "documentation", "pipeline_rationale", "governance_rationale"
+                "summary", "documentation", "pipeline_rationale", "governance_rationale", "sections", "content"
             ]
             for key in keys_to_repair:
                 pattern = r'\\{2,}"\s*,\s*(?:\\n|\\r|\s)*\\+"' + key + r'\\+"'
@@ -179,7 +179,7 @@ def extract_json(raw_text: Any, task_type: str = None) -> Dict[str, Any]:
                 "compliance_checklist", "lin", "tags", "architecture_type", "modeling_paradigm", 
                 "layers", "architecture_justification", "data_model_blueprint", "data_flow", 
                 "ddl_sql", "grant_sql", "transform_sql", "assumptions", "version", "generated_at", 
-                "summary", "documentation", "pipeline_rationale", "governance_rationale"
+                "summary", "documentation", "pipeline_rationale", "governance_rationale", "sections", "content"
             ]
             for key in keys_to_repair:
                 pattern = r'\\{2,}"\s*,\s*(?:\\n|\\r|\s)*\\+"' + key + r'\\+"'
@@ -411,6 +411,8 @@ TOKEN_BUDGETS = {
     "documentation_summary": 8192,
     "data_dictionary":       8192,
     "diagram":               16384,
+    "proposal_gen":          8192,
+    "tech_doc_gen":          8192,
 }
 
 
@@ -433,6 +435,8 @@ def normalize_extracted_payload(parsed: dict, task_type: str) -> dict:
         "metadata_analysis":     ["lin", "tags"],
         "relationship_design":   ["rel", "mermaid_diagram"],
         "final_blueprint":       ["summary"],
+        "proposal_gen":          ["document_metadata", "sections"],
+        "tech_doc_gen":          ["document_metadata", "sections"],
     }.get(task_type, [])
 
     while isinstance(parsed, dict) and len(parsed) == 1:
@@ -543,9 +547,6 @@ def call_cortex(session, prompt: str, task_type: str, model: str = "mistral-larg
 
             res        = session.sql(sql, params=params).collect()
             raw_output = res[0][0] if res else None
-
-            if not raw_output:
-                raise Exception("Empty response from Cortex")
 
             parsed = _safe_parse(raw_output, task_type)
 

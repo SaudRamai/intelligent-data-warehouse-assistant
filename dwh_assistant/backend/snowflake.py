@@ -354,6 +354,16 @@ def load_project_by_id(session: Session, project_id: str) -> Optional[dict]:
         pipe   = parse_variant(row.get("PIPELINE"))
         gov    = parse_variant(row.get("GOVERNANCE"))
         docs   = {"documentation": row.get("DOCUMENTATION", ""), "mermaid_diagram": row.get("MERMAID_DIAGRAM", "")}
+        doc_str = row.get("DOCUMENTATION", "")
+        if doc_str:
+            try:
+                parsed_docs = json.loads(doc_str)
+                if isinstance(parsed_docs, dict) and ("proposal" in parsed_docs or "technical" in parsed_docs):
+                    docs["proposal"] = parsed_docs.get("proposal")
+                    docs["technical"] = parsed_docs.get("technical")
+            except Exception:
+                pass
+                
         meta   = parse_variant(row.get("METADATA"))
 
         return {
@@ -366,6 +376,8 @@ def load_project_by_id(session: Session, project_id: str) -> Optional[dict]:
             "governance_security":  gov,
             "ddl_generation":       {"ddl_sql": row.get("DDL_SQL", "")},
             "documentation_design": docs,
+            "proposal_doc":         docs.get("proposal"),
+            "tech_doc":             docs.get("technical"),
             "relationship_design":  meta.get("relationship_design", {}),
             "final_blueprint":      meta.get("final_blueprint", {}),
             "final":                meta.get("final_blueprint", {}),

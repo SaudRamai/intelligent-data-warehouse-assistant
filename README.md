@@ -10,10 +10,11 @@ An enterprise-grade, multi-page Streamlit application that acts as an AI Orchest
     *   `2_Data_Profile.py`: Connects to source databases to profile existing data.
     *   `3_AI_Generation.py`: Interfaces with Snowflake Cortex to generate the architecture blueprint.
     *   `4_Design_Center.py`: Interactive review and editing of generated schemas, pipelines, and DDLs using Mermaid.js and code editors.
+    *   `5_Deliverables_Documents.py`: Enterprise document generator for crafting client-ready Proposals and Technical Design Documents.
 *   **`dwh_assistant/`**: The core application logic.
     *   `backend/`: Snowflake connection logic, executor for LLM payload extraction, and prompt definitions.
     *   `components/`: Reusable Streamlit components like the interactive Mermaid renderer and CSS stylesheets.
-    *   `utils/`: Helper utilities.
+    *   `utils/`: Helper utilities, including robust `doc_generator.py` for chunked LLM execution and `doc_export.py` for PDF/DOCX rendering.
 *   **`.streamlit/`**: Contains the `secrets.toml` file for secure Snowflake connection settings.
 
 ## Getting Started

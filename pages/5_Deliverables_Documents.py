@@ -654,6 +654,23 @@ def main():
                         with st.container(border=True):
                             render_document_ui(t_doc)
                 
+                # Render Historical Diagram
+                m_diagram = past_proj.get("documentation_design", {}).get("mermaid_diagram", "")
+                if m_diagram and isinstance(m_diagram, str) and len(m_diagram) > 10:
+                    st.markdown("#### Historical Architecture Diagram")
+                    
+                    mdc1, mdc2 = st.columns([1, 4])
+                    if mdc1.button("View Diagram" if not st.session_state.get(f"show_diag_{selected_past_id}") else "Hide Diagram", key=f"btn_view_diag_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"show_diag_{selected_past_id}"] = not st.session_state.get(f"show_diag_{selected_past_id}", False)
+                        st.rerun()
+                        
+                    if st.session_state.get(f"show_diag_{selected_past_id}"):
+                        from dwh_assistant.components.mermaid_renderer import render_mermaid
+                        with st.container(border=True):
+                            render_mermaid(m_diagram, height=600)
+                            
+                    st.divider()
+
                 # Handle legacy plain-text documents
                 legacy_str = past_proj.get("documentation_design", {}).get("documentation", "")
                 if not p_doc and not t_doc and isinstance(legacy_str, str) and len(legacy_str) > 20 and not legacy_str.strip().startswith('{"proposal"'):

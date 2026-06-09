@@ -8,7 +8,7 @@ root_path = str(Path(__file__).parent.parent.parent)
 if root_path not in sys.path:
     sys.path.append(root_path)
 
-from dwh_assistant.backend.snowflake import ensure_session
+from dwh_assistant.backend.snowflake import ensure_session, get_all_projects, load_project_by_id
 from dwh_assistant.backend.executor import call_cortex
 from dwh_assistant.utils.ui import apply_premium_style, render_page_header, render_ai_sidebar, init_session_state
 from dwh_assistant.utils.doc_export import ConsultingPDFExporter, ConsultingDOCXExporter
@@ -578,6 +578,114 @@ def main():
         if st.session_state.get("show_tech"):
             with st.container(border=True):
                 render_document_ui(doc_data)
+
+    # Document History Section
+    st.divider()
+    st.markdown('''
+        <div class="glass-card-white" style="margin-bottom: 20px; padding: 20px;">
+            <h3 style="margin-top: 0; color: #002244; font-weight: 700; font-family: 'Outfit', sans-serif;">Document History</h3>
+            <p style="color: #64748B; font-size: 0.95rem; margin-bottom: 0; font-family: 'Outfit', sans-serif;">View and download documents generated from past projects.</p>
+        </div>
+    ''', unsafe_allow_html=True)
+    
+    session = ensure_session()
+    all_projects = get_all_projects(session)
+    if all_projects:
+        project_options = {p["ID"]: f"{p['ID']} - {p['CREATED_AT'].strftime('%Y-%m-%d %H:%M') if hasattr(p['CREATED_AT'], 'strftime') else p['CREATED_AT']}" for p in all_projects}
+        selected_past_id = st.selectbox("Select a past project to view its documents:", options=[""] + list(project_options.keys()), format_func=lambda x: project_options.get(x, "Select Project..."))
+        
+        if selected_past_id:
+            past_proj = load_project_by_id(session, selected_past_id)
+            if past_proj:
+                p_doc = past_proj.get("proposal_doc")
+                t_doc = past_proj.get("tech_doc")
+                
+                if p_doc:
+                    st.markdown("#### Historical Proposal Document")
+                    if isinstance(p_doc, str): p_doc = {"sections": [{"heading": "Legacy Document", "type": "text", "content": p_doc}]}
+                    md_string_p = to_markdown_string(p_doc)
+                    pdf_gen_p = ConsultingPDFExporter(p_doc.get("document_metadata", {}))
+                    pdf_bytes_p = pdf_gen_p.generate(p_doc.get("sections", []))
+                    docx_gen_p = ConsultingDOCXExporter(p_doc.get("document_metadata", {}))
+                    docx_bytes_p = docx_gen_p.generate(p_doc.get("sections", []))
+                    
+                    hc1, hc2, hc3, hc4, hc5 = st.columns(5)
+                    if hc1.button("View Document" if not st.session_state.get(f"show_prop_{selected_past_id}") else "Hide Document", key=f"btn_view_prop_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"show_prop_{selected_past_id}"] = not st.session_state.get(f"show_prop_{selected_past_id}", False)
+                        st.rerun()
+                    hc2.download_button("PDF", data=pdf_bytes_p, file_name=f"Proposal_{selected_past_id}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_p_{selected_past_id}")
+                    hc3.download_button("DOCX", data=docx_bytes_p, file_name=f"Proposal_{selected_past_id}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, key=f"dl_docx_p_{selected_past_id}")
+                    hc4.download_button("Markdown", data=md_string_p, file_name=f"Proposal_{selected_past_id}.md", mime="text/markdown", use_container_width=True, key=f"dl_md_p_{selected_past_id}")
+                    if hc5.button("Copy Content" if not st.session_state.get(f"copy_prop_{selected_past_id}") else "Hide Content", key=f"btn_copy_prop_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"copy_prop_{selected_past_id}"] = not st.session_state.get(f"copy_prop_{selected_past_id}", False)
+                        st.rerun()
+                        
+                    if st.session_state.get(f"copy_prop_{selected_past_id}"):
+                        st.code(md_string_p, language="markdown")
+                    if st.session_state.get(f"show_prop_{selected_past_id}"):
+                        with st.container(border=True):
+                            render_document_ui(p_doc)
+                            
+                    st.divider()
+                            
+                if t_doc:
+                    st.markdown("#### Historical Technical Document")
+                    if isinstance(t_doc, str): t_doc = {"sections": [{"heading": "Legacy Document", "type": "text", "content": t_doc}]}
+                    md_string_t = to_markdown_string(t_doc)
+                    pdf_gen_t2 = ConsultingPDFExporter(t_doc.get("document_metadata", {}))
+                    pdf_bytes_t2 = pdf_gen_t2.generate(t_doc.get("sections", []))
+                    docx_gen_t2 = ConsultingDOCXExporter(t_doc.get("document_metadata", {}))
+                    docx_bytes_t2 = docx_gen_t2.generate(t_doc.get("sections", []))
+                    
+                    hc1, hc2, hc3, hc4, hc5 = st.columns(5)
+                    if hc1.button("View Document" if not st.session_state.get(f"show_tech_{selected_past_id}") else "Hide Document", key=f"btn_view_tech_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"show_tech_{selected_past_id}"] = not st.session_state.get(f"show_tech_{selected_past_id}", False)
+                        st.rerun()
+                    hc2.download_button("PDF", data=pdf_bytes_t2, file_name=f"Tech_{selected_past_id}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_t_{selected_past_id}")
+                    hc3.download_button("DOCX", data=docx_bytes_t2, file_name=f"Tech_{selected_past_id}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, key=f"dl_docx_t_{selected_past_id}")
+                    hc4.download_button("Markdown", data=md_string_t, file_name=f"Tech_{selected_past_id}.md", mime="text/markdown", use_container_width=True, key=f"dl_md_t_{selected_past_id}")
+                    if hc5.button("Copy Content" if not st.session_state.get(f"copy_tech_{selected_past_id}") else "Hide Content", key=f"btn_copy_tech_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"copy_tech_{selected_past_id}"] = not st.session_state.get(f"copy_tech_{selected_past_id}", False)
+                        st.rerun()
+                        
+                    if st.session_state.get(f"copy_tech_{selected_past_id}"):
+                        st.code(md_string_t, language="markdown")
+                    if st.session_state.get(f"show_tech_{selected_past_id}"):
+                        with st.container(border=True):
+                            render_document_ui(t_doc)
+                
+                # Handle legacy plain-text documents
+                legacy_str = past_proj.get("documentation_design", {}).get("documentation", "")
+                if not p_doc and not t_doc and isinstance(legacy_str, str) and len(legacy_str) > 20 and not legacy_str.strip().startswith('{"proposal"'):
+                    st.markdown("#### Historical Legacy Document")
+                    legacy_doc = {"document_metadata": {"title": "Legacy Project Document", "version": "1.0"}, "sections": [{"heading": "Content", "type": "text", "content": legacy_str}]}
+                    md_string_l = legacy_str
+                    pdf_gen_l = ConsultingPDFExporter(legacy_doc.get("document_metadata", {}))
+                    pdf_bytes_l = pdf_gen_l.generate(legacy_doc.get("sections", []))
+                    docx_gen_l = ConsultingDOCXExporter(legacy_doc.get("document_metadata", {}))
+                    docx_bytes_l = docx_gen_l.generate(legacy_doc.get("sections", []))
+                    
+                    hc1, hc2, hc3, hc4, hc5 = st.columns(5)
+                    if hc1.button("View Document" if not st.session_state.get(f"show_leg_{selected_past_id}") else "Hide Document", key=f"btn_view_leg_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"show_leg_{selected_past_id}"] = not st.session_state.get(f"show_leg_{selected_past_id}", False)
+                        st.rerun()
+                    hc2.download_button("PDF", data=pdf_bytes_l, file_name=f"Legacy_{selected_past_id}.pdf", mime="application/pdf", use_container_width=True, key=f"dl_pdf_l_{selected_past_id}")
+                    hc3.download_button("DOCX", data=docx_bytes_l, file_name=f"Legacy_{selected_past_id}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, key=f"dl_docx_l_{selected_past_id}")
+                    hc4.download_button("Markdown", data=md_string_l, file_name=f"Legacy_{selected_past_id}.md", mime="text/markdown", use_container_width=True, key=f"dl_md_l_{selected_past_id}")
+                    if hc5.button("Copy Content" if not st.session_state.get(f"copy_leg_{selected_past_id}") else "Hide Content", key=f"btn_copy_leg_{selected_past_id}", use_container_width=True):
+                        st.session_state[f"copy_leg_{selected_past_id}"] = not st.session_state.get(f"copy_leg_{selected_past_id}", False)
+                        st.rerun()
+                        
+                    if st.session_state.get(f"copy_leg_{selected_past_id}"):
+                        st.code(md_string_l, language="markdown")
+                    if st.session_state.get(f"show_leg_{selected_past_id}"):
+                        with st.container(border=True):
+                            render_document_ui(legacy_doc)
+
+                elif not p_doc and not t_doc:
+                    st.info("Documents have not been generated for this project yet. Select the project and click 'Generate Both Documents' above to create them.")
+    else:
+        st.info("No historical projects found in the database.")
 
 if __name__ == "__main__":
     main()

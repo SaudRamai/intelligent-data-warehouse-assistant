@@ -662,37 +662,60 @@ def call_cortex_with_continuation(session: Session, prompt: str, task_type: str,
             except Exception: pass
             
         if c2_raw:
-            c1 = raw.rstrip()
-            c2 = c2_raw.strip()
+            def _extract_content(r: str) -> str:
+                if not isinstance(r, str): return ""
+                try:
+                    p = json.loads(r)
+                    if "choices" in p and isinstance(p["choices"], list) and len(p["choices"]) > 0:
+                        msg = p["choices"][0].get("message", p["choices"][0].get("messages", ""))
+                        if isinstance(msg, dict): return msg.get("content", "")
+                        if isinstance(msg, str): return msg
+                except Exception:
+                    pass
+                text = r.strip()
+                if text.startswith('{') and ('"choices"' in text[:150] or '"messages"' in text[:150]):
+                    for key in ['"messages": "', '"content": "', '"messages":  "', '"content":  "']:
+                        idx = text.find(key)
+                        if idx != -1 and idx < 400:
+                            payload_str = text[idx + len(key):]
+                            end_idx = payload_str.rfind('"}')
+                            if end_idx != -1 and end_idx > len(payload_str) - 20:
+                                payload_str = payload_str[:end_idx]
+                            return unescape_json_string(payload_str)
+                return r
+                
+            c1_content = _extract_content(raw)
+            c2_content = _extract_content(c2_raw)
             
-            c2 = re.sub(r'^```(?:json|mermaid|sql)?\s*', '', c2, flags=re.IGNORECASE)
-            c2 = re.sub(r'\s*```$', '', c2).strip()
+            c2_content = re.sub(r'^```(?:json|mermaid|sql)?\s*', '', c2_content.lstrip(), flags=re.IGNORECASE)
+            c2_content = re.sub(r'\s*```$', '', c2_content).rstrip()
             
-            dict1 = extract_json(raw, task_type)
+            stitched = c1_content.rstrip() + c2_content
+            
+            stitched_parsed = extract_json(stitched, task_type)
+            if isinstance(stitched_parsed, dict) and "raw_unparsed" not in stitched_parsed:
+                parsed = normalize_extracted_payload(stitched_parsed, task_type)
+                print(f" [CONTINUATION SUCCESS]")
+                return {"success": True, "output": parsed, "raw": json.dumps(parsed), "model": model}
+                
+            dict1 = extract_json(c1_content, task_type)
             if not isinstance(dict1, dict) or "raw_unparsed" in dict1:
-                try: dict1 = json.loads(fix_truncated_json(clean_json_string(raw)))
+                try: dict1 = json.loads(fix_truncated_json(clean_json_string(c1_content)))
                 except Exception: dict1 = {}
                 
             dict2 = {}
-            if c2.startswith('{'):
-                dict2 = extract_json(c2, task_type)
+            if c2_content.startswith('{'):
+                dict2 = extract_json(c2_content, task_type)
                 if not isinstance(dict2, dict) or "raw_unparsed" in dict2: dict2 = {}
             else:
-                wrapped_c2 = "{" + re.sub(r'^(?:"mermaid_diagram"|mermaid_diagram)?\s*:\s*', '', c2, flags=re.IGNORECASE)
+                wrapped_c2 = "{" + re.sub(r'^(?:"mermaid_diagram"|mermaid_diagram)?\s*:\s*', '', c2_content, flags=re.IGNORECASE)
                 if not wrapped_c2.endswith("}"): wrapped_c2 += "}"
                 try: dict2 = json.loads(fix_truncated_json(clean_json_string(wrapped_c2)))
                 except Exception: dict2 = {}
                 
-            stitched = c1 + c2
-            stitched_parsed = extract_json(stitched, task_type)
-            if isinstance(stitched_parsed, dict) and "raw_unparsed" not in stitched_parsed:
-                base_ast = stitched_parsed
-            else:
-                base_ast = dict1
-                
-            parsed = structured_merge(base_ast, dict2)
+            parsed = structured_merge(dict1, dict2)
             
-            if isinstance(parsed, dict) and "raw_unparsed" not in parsed:
+            if isinstance(parsed, dict) and "raw_unparsed" not in parsed and parsed:
                 parsed = normalize_extracted_payload(parsed, task_type)
                 print(f" [CONTINUATION SUCCESS]")
                 return {"success": True, "output": parsed, "raw": json.dumps(parsed), "model": model}

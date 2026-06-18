@@ -152,21 +152,23 @@ def _build_table_flowable(headers: list, rows: list, styles: dict, page_width: f
             if i < col_count:
                 max_lens[i] = max(max_lens[i], len(str(c)))
                 
-    max_lens = [max(l, 5) for l in max_lens]
+    # Cap lengths to prevent one massive text column from squashing others
+    max_lens = [min(max(l, 15), 100) for l in max_lens]
     total_len = sum(max_lens)
-    usable_width = page_width - 2 * inch
+    # Use full available width (page_width - 1.5 inch for 0.75 left/right margins)
+    usable_width = page_width - 1.5 * inch
     
     col_widths = [usable_width * (l / total_len) for l in max_lens]
     
     # Enforce minimum width
-    min_width = 30
+    min_width = max(60.0, usable_width / (col_count * 2.5))
     for i in range(len(col_widths)):
         if col_widths[i] < min_width:
             col_widths[i] = min_width
             
     # Normalize back to usable width
     total_width = sum(col_widths)
-    if total_width > usable_width:
+    if total_width != usable_width:
         scale = usable_width / total_width
         col_widths = [w * scale for w in col_widths]
 
